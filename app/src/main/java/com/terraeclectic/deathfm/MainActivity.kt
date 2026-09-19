@@ -17,8 +17,9 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.terraeclectic.deathfm.lastfm.LastFmClient
 import com.terraeclectic.deathfm.playback.PlaybackService
+import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_ELAPSED_AT_FETCH_MS
+import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_FETCHED_AT_DEVICE_MS
 import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_LENGTH_MS
-import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_PLAY_START_UTC
 import com.terraeclectic.deathfm.playback.Stations
 import com.terraeclectic.deathfm.ui.PlayerScreen
 import com.terraeclectic.deathfm.ui.SettingsScreen
@@ -48,7 +49,8 @@ class MainActivity : ComponentActivity() {
                 var trackAlbum by remember { mutableStateOf("") }
                 var coverUrl by remember { mutableStateOf<String?>(null) }
                 var trackLengthMs by remember { mutableStateOf(0L) }
-                var trackPlayStartUtc by remember { mutableStateOf(0L) }
+                var trackElapsedAtFetchMs by remember { mutableStateOf(0L) }
+                var trackFetchedAtDeviceMs by remember { mutableStateOf(0L) }
                 var isConnected by remember { mutableStateOf((application as DeathFmApp).settings.isLastFmConnected) }
 
                 DisposableEffect(Unit) {
@@ -69,7 +71,8 @@ class MainActivity : ComponentActivity() {
                             trackAlbum = mediaMetadata.albumTitle?.toString() ?: ""
                             coverUrl = mediaMetadata.artworkUri?.toString()
                             trackLengthMs = mediaMetadata.extras?.getLong(EXTRA_LENGTH_MS) ?: 0L
-                            trackPlayStartUtc = mediaMetadata.extras?.getLong(EXTRA_PLAY_START_UTC) ?: 0L
+                            trackElapsedAtFetchMs = mediaMetadata.extras?.getLong(EXTRA_ELAPSED_AT_FETCH_MS) ?: 0L
+                            trackFetchedAtDeviceMs = mediaMetadata.extras?.getLong(EXTRA_FETCHED_AT_DEVICE_MS) ?: 0L
                         }
                         syncFromPlayer(mediaController)
                         Log.d(TAG, "Controller connected, registering listener")
@@ -122,7 +125,8 @@ class MainActivity : ComponentActivity() {
                         trackAlbum = trackAlbum,
                         coverUrl = coverUrl,
                         trackLengthMs = trackLengthMs,
-                        trackPlayStartUtc = trackPlayStartUtc,
+                        trackElapsedAtFetchMs = trackElapsedAtFetchMs,
+                        trackFetchedAtDeviceMs = trackFetchedAtDeviceMs,
                         isPlaying = isPlaying,
                         onPlayPause = {
                             controller?.let { c ->

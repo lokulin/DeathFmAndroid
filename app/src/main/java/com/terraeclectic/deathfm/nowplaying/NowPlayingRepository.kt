@@ -1,5 +1,6 @@
 package com.terraeclectic.deathfm.nowplaying
 
+import android.text.Html
 import android.util.Log
 import com.terraeclectic.deathfm.playback.Station
 import kotlinx.coroutines.CoroutineScope
@@ -34,13 +35,17 @@ class NowPlayingRepository(
 
     private var pollJob: Job? = null
 
-    // "2026-09-19T02:12:32" - naive local-looking timestamp the API actually
-    // returns in UTC (confirmed against the API's own SystemTime field).
-    // DateTimeFormatter (unlike SimpleDateFormat) is immutable and
-    // thread-safe - pollOnce() runs on Dispatchers.IO, a multi-threaded
-    // pool, so a shared SimpleDateFormat here would risk its internal
-    // Calendar state (timezone included) getting corrupted by concurrent use.
-    private val playStartFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+    // "2026-09-19T02:12:32" - naive-looking timestamp format used by both
+    // "PlayStart" and "SystemTime". Despite the field name, this is NOT
+    // reliably UTC - checked live against this device's real UTC clock, the
+    // station's own clock was a flat 4 hours off (looks like it's actually
+    // running on US Eastern time and mislabeling its timestamps). Only ever
+    // used to compute the delta between the two fields (see parse()), never
+    // as an absolute instant. DateTimeFormatter (unlike SimpleDateFormat) is
+    // immutable and thread-safe - pollOnce() runs on Dispatchers.IO, a
+    // multi-threaded pool, so a shared SimpleDateFormat here would risk its
+    // internal Calendar state getting corrupted by concurrent use.
+    private val stationTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
 
     fun start(scope: CoroutineScope) {
         if (pollJob != null) return
@@ -79,23 +84,42 @@ class NowPlayingRepository(
 
     private fun parse(json: String): NowPlayingMetadata {
         val obj = JSONObject(json)
-        val playStartUtc = try {
-            LocalDateTime.parse(obj.optString("PlayStart"), playStartFormat)
-                .toInstant(ZoneOffset.UTC)
-                .toEpochMilli()
-        } catch (e: Exception) {
+
+        // Parsed under the same (possibly-wrong) zone assumption for both
+        // fields, so whatever the station's clock's real offset is, it
+        // cancels out in this subtraction - see stationTimeFormat's doc.
+        val playStart = parseStationTime(obj.optString("PlayStart"))
+        val systemTime = parseStationTime(obj.optString("SystemTime"))
+        val elapsedAtFetchMs = if (playStart != null && systemTime != null) {
+            (systemTime - playStart).coerceAtLeast(0L)
+        } else {
             0L
         }
+
         return NowPlayingMetadata(
-            track = obj.optString("Track", "Death.FM").ifBlank { "Death.FM" },
-            artist = obj.optString("Artist", "Death.FM").ifBlank { "Death.FM" },
-            album = obj.optString("Album", ""),
+            track = decodeEntities(obj.optString("Track", "Death.FM")).ifBlank { "Death.FM" },
+            artist = decodeEntities(obj.optString("Artist", "Death.FM")).ifBlank { "Death.FM" },
+            album = decodeEntities(obj.optString("Album", "")),
             lengthMs = obj.optString("Length", "0").toLongOrNull() ?: 0L,
-            playStartUtc = playStartUtc,
+            elapsedAtFetchMs = elapsedAtFetchMs,
+            fetchedAtDeviceMs = System.currentTimeMillis(),
+            spinId = playStart ?: 0L,
             coverUrl = obj.optString("CoverLink").ifBlank { null },
             listenerCount = obj.optString("ListenerCount", "0").toIntOrNull() ?: 0,
         )
     }
+
+    private fun parseStationTime(raw: String): Long? = try {
+        LocalDateTime.parse(raw, stationTimeFormat).toInstant(ZoneOffset.UTC).toEpochMilli()
+    } catch (e: Exception) {
+        null
+    }
+
+    // The death.fm player page's own JS calls a decodeEntities() helper on
+    // this same field before display - the API returns HTML-entity-encoded
+    // text (e.g. "All&#039;inizio" for "All'inizio") rather than plain text.
+    private fun decodeEntities(text: String): String =
+        Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY).toString()
 
     companion object {
         private const val TAG = "NowPlayingRepository"

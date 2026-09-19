@@ -109,10 +109,15 @@ class PlaybackService : MediaLibraryService() {
             // MediaMetadata has no built-in "track length" field (duration
             // normally comes from the player/Timeline, meaningless for a live
             // stream) - stashed in extras so the UI can render a playtime
-            // readout from the same real Length/PlayStart the scrobbler uses.
+            // readout from the same real data the scrobbler uses. See
+            // NowPlayingMetadata's doc for why this is elapsedAtFetchMs +
+            // fetchedAtDeviceMs rather than a raw "start time" - the
+            // station's own clock turned out not to be trustworthy as an
+            // absolute timestamp.
             .setExtras(android.os.Bundle().apply {
                 putLong(EXTRA_LENGTH_MS, metadata.lengthMs)
-                putLong(EXTRA_PLAY_START_UTC, metadata.playStartUtc)
+                putLong(EXTRA_ELAPSED_AT_FETCH_MS, metadata.elapsedAtFetchMs)
+                putLong(EXTRA_FETCHED_AT_DEVICE_MS, metadata.fetchedAtDeviceMs)
             })
             .build()
 
@@ -187,6 +192,7 @@ class PlaybackService : MediaLibraryService() {
         private const val TAG = "PlaybackService"
         private const val ROOT_ID = "root"
         const val EXTRA_LENGTH_MS = "com.terraeclectic.deathfm.LENGTH_MS"
-        const val EXTRA_PLAY_START_UTC = "com.terraeclectic.deathfm.PLAY_START_UTC"
+        const val EXTRA_ELAPSED_AT_FETCH_MS = "com.terraeclectic.deathfm.ELAPSED_AT_FETCH_MS"
+        const val EXTRA_FETCHED_AT_DEVICE_MS = "com.terraeclectic.deathfm.FETCHED_AT_DEVICE_MS"
     }
 }

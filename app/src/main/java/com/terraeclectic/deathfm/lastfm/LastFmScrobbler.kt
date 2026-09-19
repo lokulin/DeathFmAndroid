@@ -77,14 +77,20 @@ class LastFmScrobbler(
             if (lengthSeconds <= 30) return // Last.fm: never scrobble tracks <=30s.
 
             val scrobbleThresholdSeconds = min(lengthSeconds / 2, 4 * 60)
-            val elapsedSeconds = (System.currentTimeMillis() / 1000) - (metadata.playStartUtc / 1000)
+            // Not metadata.fetchedAtDeviceMs's raw value - the station's own
+            // clock isn't a trustworthy absolute timestamp (see
+            // NowPlayingMetadata's doc), so elapsed is anchored to this
+            // device's own clock via elapsedAtFetchMs instead, same as the UI.
+            val nowMs = System.currentTimeMillis()
+            val elapsedSeconds = (metadata.elapsedAtFetchMs + (nowMs - metadata.fetchedAtDeviceMs)) / 1000
             if (elapsedSeconds >= scrobbleThresholdSeconds) {
+                val startedAtSeconds = (nowMs / 1000) - elapsedSeconds
                 lastFm.scrobble(
                     sessionKey,
                     metadata.artist,
                     metadata.track,
                     metadata.album.ifBlank { null },
-                    metadata.playStartUtc / 1000,
+                    startedAtSeconds,
                 )
                 lastScrobbledKey = metadata.trackKey
             }

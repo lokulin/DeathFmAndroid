@@ -3,6 +3,7 @@ package com.terraeclectic.deathfm.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -68,7 +70,8 @@ fun PlayerScreen(
     trackAlbum: String,
     coverUrl: String?,
     trackLengthMs: Long,
-    trackPlayStartUtc: Long,
+    trackElapsedAtFetchMs: Long,
+    trackFetchedAtDeviceMs: Long,
     isPlaying: Boolean,
     onPlayPause: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -115,18 +118,22 @@ fun PlayerScreen(
                     // first (bottommost) child so the metadata Column below
                     // renders on top of it, same as classic Cover Flow.
                     //
-                    // Sized as a full aspectRatio(1f) square - matching the
-                    // real artwork above it exactly - then clipped down to
-                    // just the visible reflection strip, rather than being
-                    // independently cropped to ReflectionHeight directly.
-                    // Cropping to a short box on its own re-frames the image
-                    // (Coil picks a centered slice of the *source*, not the
-                    // real artwork's own bottom edge), which looked like a
-                    // reflection of the wrong, unrelated part of the cover.
-                    // Flipping a full copy of the same square and clipping
-                    // its *top* guarantees the visible strip continues
-                    // exactly from where the real artwork leaves off.
-                    Box(
+                    // Sized as a full square matching the real artwork above
+                    // it exactly, then clipped down to just the visible
+                    // reflection strip - rather than being independently
+                    // cropped to ReflectionHeight directly (Coil would then
+                    // pick a centered slice of the *source*, not the real
+                    // artwork's own bottom edge, which looked like a
+                    // reflection of the wrong, unrelated part of the cover).
+                    //
+                    // requiredHeight (not height/aspectRatio) is deliberate:
+                    // a plain height()/aspectRatio() modifier gets clamped to
+                    // the outer Box's own height(ReflectionHeight) constraint
+                    // propagating down, which squished this back into a
+                    // short, re-cropped rectangle instead of a true square -
+                    // requiredHeight overrides that clamp so the image is
+                    // genuinely full-size before clipToBounds() crops it.
+                    BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(ReflectionHeight)
@@ -141,7 +148,7 @@ fun PlayerScreen(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(1f)
+                                .requiredHeight(maxWidth)
                                 .graphicsLayer { scaleY = -1f }
                                 .alpha(0.25f),
                         )
@@ -187,7 +194,12 @@ fun PlayerScreen(
                             textAlign = TextAlign.Center,
                         )
                         Spacer(modifier = Modifier.height(32.dp))
-                        PlaybackProgress(lengthMs = trackLengthMs, playStartUtc = trackPlayStartUtc, isPlaying = isPlaying)
+                        PlaybackProgress(
+                            lengthMs = trackLengthMs,
+                            elapsedAtFetchMs = trackElapsedAtFetchMs,
+                            fetchedAtDeviceMs = trackFetchedAtDeviceMs,
+                            isPlaying = isPlaying,
+                        )
                     }
                 }
 
@@ -234,7 +246,7 @@ private val ReflectionHeight = 140.dp
 
 /** Thin progress bar plus "elapsed / total" caption, ticking once a second - only meaningful while actually playing a real track. */
 @Composable
-private fun PlaybackProgress(lengthMs: Long, playStartUtc: Long, isPlaying: Boolean) {
+private fun PlaybackProgress(lengthMs: Long, elapsedAtFetchMs: Long, fetchedAtDeviceMs: Long, isPlaying: Boolean) {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
@@ -242,13 +254,18 @@ private fun PlaybackProgress(lengthMs: Long, playStartUtc: Long, isPlaying: Bool
             delay(1000)
         }
     }
-    val visible = isPlaying && playStartUtc > 0L && lengthMs > 0L
+    val visible = isPlaying && fetchedAtDeviceMs > 0L && lengthMs > 0L
     // The caption isn't capped at lengthMs: death.fm's "Length" is catalog
     // metadata, not a hard boundary the live stream actually cuts at - a
     // track can run past it, and capping made the display look frozen once
     // that happened. The progress bar fraction below IS capped at 1f, since
     // a bar that overflows its own track doesn't mean anything visually.
-    val elapsedMs = (nowMs - playStartUtc).coerceAtLeast(0L)
+    //
+    // Deliberately NOT "nowMs - some start timestamp from the station" -
+    // the station's own PlayStart/SystemTime fields turned out to be a flat
+    // 4 hours off from real UTC (see NowPlayingRepository's doc), so elapsed
+    // is instead anchored to this device's own correct clock at fetch time.
+    val elapsedMs = (elapsedAtFetchMs + (nowMs - fetchedAtDeviceMs)).coerceAtLeast(0L)
     val progressFraction = if (lengthMs > 0L) (elapsedMs.toFloat() / lengthMs).coerceIn(0f, 1f) else 0f
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
