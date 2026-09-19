@@ -1,6 +1,8 @@
 package com.terraeclectic.deathfm.playback
 
 import android.util.Log
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -50,9 +52,25 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
 
-        player = ExoPlayer.Builder(this).build().apply {
-            addListener(playerListener)
-        }
+        player = ExoPlayer.Builder(this)
+            // Neither of these is on by default - without them ExoPlayer
+            // never requests/responds to Android's audio focus system at
+            // all, which is why switching to another media app (in Android
+            // Auto or otherwise) didn't pause us, switching back to us
+            // didn't pause the other app, and disconnecting Bluetooth kept
+            // playing out of the phone's own speaker instead of stopping.
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                /* handleAudioFocus= */ true,
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
+            .apply {
+                addListener(playerListener)
+            }
 
         mediaSession = MediaLibrarySession.Builder(this, player, librarySessionCallback)
             .build()
