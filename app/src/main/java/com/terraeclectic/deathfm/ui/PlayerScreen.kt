@@ -3,7 +3,6 @@ package com.terraeclectic.deathfm.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -30,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +88,9 @@ fun PlayerScreen(
         color = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
+        var artworkHeightPx by remember { mutableIntStateOf(0) }
+        val density = LocalDensity.current
+
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 AsyncImage(
@@ -105,7 +110,14 @@ fun PlayerScreen(
                         // extends all the way to the physical top of the screen.
                         .statusBarsPadding()
                         .fillMaxWidth()
-                        .aspectRatio(1f),
+                        .aspectRatio(1f)
+                        // Captures this Image's actual final rendered height,
+                        // in real pixels, once layout settles - the
+                        // reflection below copies this exact value rather
+                        // than independently re-deriving "should be the same
+                        // square size" from its own surrounding constraints,
+                        // which is what kept going subtly wrong.
+                        .onSizeChanged { artworkHeightPx = it.height },
                 )
 
                 Box(
@@ -118,40 +130,44 @@ fun PlayerScreen(
                     // first (bottommost) child so the metadata Column below
                     // renders on top of it, same as classic Cover Flow.
                     //
-                    // Sized as a full square matching the real artwork above
-                    // it exactly, then clipped down to just the visible
-                    // reflection strip - rather than being independently
-                    // cropped to ReflectionHeight directly (Coil would then
-                    // pick a centered slice of the *source*, not the real
-                    // artwork's own bottom edge, which looked like a
-                    // reflection of the wrong, unrelated part of the cover).
+                    // Sized to the real artwork's own measured height
+                    // (artworkHeightPx, captured above) rather than an
+                    // independently-recomputed square - guarantees identical
+                    // framing between the two, then clipped down to just the
+                    // visible reflection strip. Cropping directly to
+                    // ReflectionHeight instead would make Coil pick a
+                    // centered slice of the *source* image, not the real
+                    // artwork's own bottom edge - looked like a reflection of
+                    // the wrong, unrelated part of the cover.
                     //
-                    // requiredHeight (not height/aspectRatio) is deliberate:
-                    // a plain height()/aspectRatio() modifier gets clamped to
-                    // the outer Box's own height(ReflectionHeight) constraint
-                    // propagating down, which squished this back into a
-                    // short, re-cropped rectangle instead of a true square -
-                    // requiredHeight overrides that clamp so the image is
-                    // genuinely full-size before clipToBounds() crops it.
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(ReflectionHeight)
-                            .align(Alignment.TopCenter)
-                            .clipToBounds(),
-                    ) {
-                        AsyncImage(
-                            model = coverUrl,
-                            fallback = painterResource(R.drawable.album_art_placeholder),
-                            error = painterResource(R.drawable.album_art_placeholder),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
+                    // requiredHeight (not height) is deliberate: a plain
+                    // height() modifier gets clamped to the outer Box's own
+                    // height(ReflectionHeight) constraint propagating down,
+                    // squishing this back into a short, re-cropped rectangle
+                    // instead of the real artwork's true height - requiredHeight
+                    // overrides that clamp so the image is genuinely
+                    // full-size before clipToBounds() crops it.
+                    if (artworkHeightPx > 0) {
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .requiredHeight(maxWidth)
-                                .graphicsLayer { scaleY = -1f }
-                                .alpha(0.25f),
-                        )
+                                .height(ReflectionHeight)
+                                .align(Alignment.TopCenter)
+                                .clipToBounds(),
+                        ) {
+                            AsyncImage(
+                                model = coverUrl,
+                                fallback = painterResource(R.drawable.album_art_placeholder),
+                                error = painterResource(R.drawable.album_art_placeholder),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .requiredHeight(with(density) { artworkHeightPx.toDp() })
+                                    .graphicsLayer { scaleY = -1f }
+                                    .alpha(0.25f),
+                            )
+                        }
                     }
                     Box(
                         modifier = Modifier

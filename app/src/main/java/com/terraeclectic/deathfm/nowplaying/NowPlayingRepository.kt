@@ -123,6 +123,9 @@ class NowPlayingRepository(
 
     companion object {
         private const val TAG = "NowPlayingRepository"
-        private const val POLL_INTERVAL_MS = 15_000L
+        // Matches the death.fm player page's own updateTrackData() polling
+        // cadence - no reason to hit the endpoint any harder than the
+        // official web player itself does.
+        private const val POLL_INTERVAL_MS = 30_000L
     }
 }
