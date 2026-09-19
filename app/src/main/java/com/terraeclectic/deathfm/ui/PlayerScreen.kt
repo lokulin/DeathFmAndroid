@@ -1,7 +1,6 @@
 package com.terraeclectic.deathfm.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,8 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -38,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -90,10 +88,71 @@ fun PlayerScreen(
         contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
         var artworkHeightPx by remember { mutableIntStateOf(0) }
-        var reflectionImgHeightPx by remember { mutableIntStateOf(0) } // TEMPORARY debug
         val density = LocalDensity.current
 
         Box(modifier = Modifier.fillMaxSize()) {
+            // Reflection: a full, un-squashed copy of the artwork, flipped
+            // and positioned to start exactly where the real artwork ends
+            // (offset by its own measured height, captured below) - drawn
+            // as the first child here so everything else (the Column with
+            // the real artwork and metadata) paints on top of it, same
+            // z-order as classic Cover Flow.
+            //
+            // Deliberately NOT sized/clipped down to a short "reflection
+            // height" box - nesting a full-size square inside anything with
+            // its own fixed, shorter height kept getting squashed by that
+            // ancestor's constraint (tried aspectRatio, then
+            // BoxWithConstraints, then requiredHeight - all still got
+            // clamped somewhere in the chain). Positioning it here, as a
+            // sibling of the Column rather than nested inside the
+            // height-constrained metadata box, means the only ancestor
+            // constraint it ever sees is "the whole screen," so
+            // aspectRatio(1f) sizes it correctly without a fight. The
+            // "short reflection" look is achieved entirely by the gradient
+            // below fading to the background color within the first ~25%
+            // of its height - the rest of the (identical, just unseen)
+            // copy is harmless, since it's already fully background-colored
+            // by then regardless of what's technically drawn there.
+            if (artworkHeightPx > 0) {
+                val artworkHeightDp = with(density) { artworkHeightPx.toDp() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .offset(y = artworkHeightDp),
+                ) {
+                    AsyncImage(
+                        model = coverUrl,
+                        fallback = painterResource(R.drawable.album_art_placeholder),
+                        error = painterResource(R.drawable.album_art_placeholder),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { scaleY = -1f }
+                            .alpha(0.25f),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    // Front-loaded into the first 25% of the
+                                    // full height, rather than spread evenly
+                                    // across it - reaches solid background
+                                    // color quickly, giving the visual
+                                    // impression of a short reflection.
+                                    colorStops = arrayOf(
+                                        0f to Color.Transparent,
+                                        0.25f to MaterialTheme.colorScheme.background,
+                                        1f to MaterialTheme.colorScheme.background,
+                                    ),
+                                ),
+                            ),
+                    )
+                }
+            }
+
             Column(modifier = Modifier.fillMaxSize()) {
                 AsyncImage(
                     model = coverUrl,
@@ -113,17 +172,10 @@ fun PlayerScreen(
                         .statusBarsPadding()
                         .fillMaxWidth()
                         .aspectRatio(1f)
-                        // TEMPORARY debug border - marks the real artwork's
-                        // exact bottom edge, to compare against the
-                        // reflection's debug border below it. Remove once
-                        // the reflection is confirmed correct.
-                        .border(2.dp, Color.Yellow)
                         // Captures this Image's actual final rendered height,
                         // in real pixels, once layout settles - the
-                        // reflection below copies this exact value rather
-                        // than independently re-deriving "should be the same
-                        // square size" from its own surrounding constraints,
-                        // which is what kept going subtly wrong.
+                        // reflection above copies this exact value so it
+                        // starts precisely at the real artwork's bottom edge.
                         .onSizeChanged { artworkHeightPx = it.height },
                 )
 
@@ -132,76 +184,6 @@ fun PlayerScreen(
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    // Reflection: the same artwork, flipped, dimmed, and faded
-                    // to the screen's background color - drawn as this Box's
-                    // first (bottommost) child so the metadata Column below
-                    // renders on top of it, same as classic Cover Flow.
-                    //
-                    // Sized to the real artwork's own measured height
-                    // (artworkHeightPx, captured above) rather than an
-                    // independently-recomputed square - guarantees identical
-                    // framing between the two, then clipped down to just the
-                    // visible reflection strip. Cropping directly to
-                    // ReflectionHeight instead would make Coil pick a
-                    // centered slice of the *source* image, not the real
-                    // artwork's own bottom edge - looked like a reflection of
-                    // the wrong, unrelated part of the cover.
-                    //
-                    // requiredHeight (not height) is deliberate: a plain
-                    // height() modifier gets clamped to the outer Box's own
-                    // height(ReflectionHeight) constraint propagating down,
-                    // squishing this back into a short, re-cropped rectangle
-                    // instead of the real artwork's true height - requiredHeight
-                    // overrides that clamp so the image is genuinely
-                    // full-size before clipToBounds() crops it.
-                    if (artworkHeightPx > 0) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(ReflectionHeight)
-                                .align(Alignment.TopCenter)
-                                .clipToBounds()
-                                // TEMPORARY debug border - marks exactly where
-                                // the clip window is, so a screenshot can
-                                // confirm whether the content inside it is
-                                // really a continuation of the real artwork's
-                                // bottom edge. Remove once confirmed correct.
-                                .border(2.dp, Color.Cyan),
-                        ) {
-                            AsyncImage(
-                                model = coverUrl,
-                                fallback = painterResource(R.drawable.album_art_placeholder),
-                                error = painterResource(R.drawable.album_art_placeholder),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .requiredHeight(with(density) { artworkHeightPx.toDp() })
-                                    .onSizeChanged { reflectionImgHeightPx = it.height } // TEMPORARY debug
-                                    .graphicsLayer { scaleY = -1f }
-                                    // TEMPORARY: full opacity, no dimming, so
-                                    // the actual raw content is unambiguous in
-                                    // a screenshot - restore to 0.25f once
-                                    // the framing is confirmed correct.
-                                    .alpha(1f),
-                            )
-                        }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(ReflectionHeight)
-                            .align(Alignment.TopCenter)
-                            .background(
-                                Brush.verticalGradient(
-                                    // TEMPORARY: gradient disabled (both stops
-                                    // transparent) while debugging - restore
-                                    // the background-color fade once confirmed.
-                                    colors = listOf(Color.Transparent, Color.Transparent),
-                                ),
-                            ),
-                    )
-
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -275,25 +257,9 @@ fun PlayerScreen(
                     modifier = Modifier.size(24.dp),
                 )
             }
-
-            // TEMPORARY debug readout - prints the actual measured pixel
-            // heights so we can see numerically whether requiredHeight is
-            // really landing at the real artwork's height, instead of
-            // inferring it from how compressed the reflection looks.
-            Text(
-                text = "art=${artworkHeightPx}px  imgReflection=${reflectionImgHeightPx}px",
-                color = Color.Cyan,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .background(Color.Black)
-                    .padding(4.dp),
-            )
         }
     }
 }
-
-private val ReflectionHeight = 140.dp
 
 /** Thin progress bar plus "elapsed / total" caption, ticking once a second - only meaningful while actually playing a real track. */
 @Composable
