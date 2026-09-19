@@ -20,6 +20,7 @@ media controls and Android Auto support essentially for free via Media3.
 | `settings/SettingsStore.kt` | Last.fm API key/secret/session, in a private `SharedPreferences` file. |
 | `ui/PlayerScreen.kt` | The player screen, laid out differently by orientation: portrait stacks full-width square artwork (with an iTunes Cover Flow-style reflection bleeding into the metadata area behind the text) above title/album/artist/progress/controls; landscape splits side by side (artwork at 80% height with its own reflection strip on the left, details/controls on the right) - rotation isn't locked, so a tablet gets a real landscape layout rather than a stretched portrait one. Both show a live progress bar + elapsed/total readout and a small Settings icon in the top-right corner. |
 | `ui/SettingsScreen.kt`, `ui/LastFmConnectionState.kt`, `ui/theme/Theme.kt` | The Last.fm settings screen (rendering each step of the real auth flow - Disconnected/AwaitingApproval/Connected/Failed), and the station-red dark theme matching death.fm's own branding. |
+| `queueplayed/QueuePlayedRepository.kt`, `ui/QueuePlayedScreen.kt` | Read-only "what's coming up" / "what recently played" browser, reverse-engineered from the player page's own Queue/Played tabs. Fetched lazily (only while that screen is open), not polled in the background. Phone/tablet only - deliberately not surfaced to Android Auto, see the Status notes below. |
 | `res/drawable/ic_launcher_foreground.png`, `res/drawable/album_art_placeholder.png` | The real app icon/artwork-placeholder art (a headphone-wearing skull), used both as the launcher icon (inset for adaptive-icon safe zones) and as the artwork shown before any track art has loaded. |
 | `res/xml/automotive_app_desc.xml` | Declares this as an Android Auto media app (paired with the `MediaBrowserService` intent-filter in the manifest). |
 
@@ -52,6 +53,11 @@ Still a skeleton in scope, though - not a finished app:
 - The Settings screen only covers Last.fm credentials - no equivalent yet of
   the desktop app's "start with system"/notification behavior toggles (less
   relevant on Android, but worth revisiting).
+- Queue/Played is intentionally phone/tablet-only, not in Android Auto's
+  browse tree - it's a fixed DJ rotation, not a user-controllable playlist,
+  so mapping it onto Auto's real interactive queue feature would imply
+  control that doesn't exist, and Auto's driver-distraction guidelines
+  discourage static, non-actionable browse content anyway.
 
 ## Backing APIs (reverse-engineered from the player page, not documented anywhere)
 
@@ -76,6 +82,14 @@ Still a skeleton in scope, though - not a finished app:
     treating the station's clock as absolute - see the doc comments on
     `NowPlayingMetadata` for the full reasoning. Worth re-checking
     periodically in case death.fm ever fixes their server clock.
+- Queue/Played: `https://death.fm/player.php?ajax_action=get_db_info&station=<id>&asin=<currentTrackAsin>`
+  (the current track's ASIN, from `GetCurrentlyPlaying`'s `SiteLink`) - the
+  same endpoint backing the player page's own Queue/Played tabs. Returns
+  `queue_html`/`played_html` as pre-rendered HTML `<tr>` fragments (rank,
+  a 40x40 thumbnail, artist in `<strong>`, album/track in `<span>`) rather
+  than clean JSON fields - `QueuePlayedRepository` parses them with Jsoup.
+  Also bundles `genre`/`year`/`rating_pct`/`secs_remain` for the current
+  track and some community-tab HTML, all currently unused.
 
 ## Prerequisites
 
