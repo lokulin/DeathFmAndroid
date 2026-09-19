@@ -23,8 +23,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.terraeclectic.deathfm.settings.SettingsStore
+import com.terraeclectic.deathfm.ui.theme.DeathFmTheme
 
 /**
  * Last.fm credentials editor - the Android equivalent of DeathFmTray's
@@ -127,5 +130,69 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Preview(name = "Disconnected")
+@Composable
+private fun SettingsScreenDisconnectedPreview() {
+    DeathFmTheme {
+        SettingsScreen(
+            settings = SettingsStore(LocalContext.current),
+            connectionState = LastFmConnectionState.Disconnected,
+            onConnectClicked = { _, _ -> },
+            onApprovedClicked = {},
+            onCancelConnect = {},
+            onDisconnectClicked = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(name = "Awaiting approval")
+@Composable
+private fun SettingsScreenAwaitingApprovalPreview() {
+    DeathFmTheme {
+        SettingsScreen(
+            settings = SettingsStore(LocalContext.current),
+            connectionState = LastFmConnectionState.AwaitingApproval,
+            onConnectClicked = { _, _ -> },
+            onApprovedClicked = {},
+            onCancelConnect = {},
+            onDisconnectClicked = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(name = "Connected")
+@Composable
+private fun SettingsScreenConnectedPreview() {
+    DeathFmTheme {
+        SettingsScreen(
+            settings = SettingsStore(LocalContext.current),
+            connectionState = LastFmConnectionState.Connected,
+            onConnectClicked = { _, _ -> },
+            onApprovedClicked = {},
+            onCancelConnect = {},
+            onDisconnectClicked = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(name = "Failed")
+@Composable
+private fun SettingsScreenFailedPreview() {
+    DeathFmTheme {
+        SettingsScreen(
+            settings = SettingsStore(LocalContext.current),
+            connectionState = LastFmConnectionState.Failed("Couldn't connect to Last.fm."),
+            onConnectClicked = { _, _ -> },
+            onApprovedClicked = {},
+            onCancelConnect = {},
+            onDisconnectClicked = {},
+            onBack = {},
+        )
     }
 }

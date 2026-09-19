@@ -54,11 +54,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.terraeclectic.deathfm.R
 import com.terraeclectic.deathfm.playback.Station
+import com.terraeclectic.deathfm.playback.Stations
+import com.terraeclectic.deathfm.ui.theme.DeathFmTheme
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -550,6 +553,48 @@ private fun formatDuration(ms: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
+}
+
+@Preview(name = "Portrait", widthDp = 360, heightDp = 720)
+@Composable
+private fun PlayerScreenPortraitPreview() {
+    DeathFmTheme {
+        PlayerScreen(
+            station = Stations.DEATH_FM,
+            trackTitle = "Sample Track Title",
+            trackArtist = "Sample Artist",
+            trackAlbum = "Sample Album",
+            coverUrl = null,
+            trackLengthMs = 240_000L,
+            trackElapsedAtFetchMs = 90_000L,
+            trackFetchedAtDeviceMs = System.currentTimeMillis(),
+            isPlaying = true,
+            onPlayPause = {},
+            onOpenSettings = {},
+            onOpenQueuePlayed = {},
+        )
+    }
+}
+
+@Preview(name = "Landscape", widthDp = 720, heightDp = 360)
+@Composable
+private fun PlayerScreenLandscapePreview() {
+    DeathFmTheme {
+        PlayerScreen(
+            station = Stations.DEATH_FM,
+            trackTitle = "Sample Track Title",
+            trackArtist = "Sample Artist",
+            trackAlbum = "Sample Album",
+            coverUrl = null,
+            trackLengthMs = 240_000L,
+            trackElapsedAtFetchMs = 90_000L,
+            trackFetchedAtDeviceMs = System.currentTimeMillis(),
+            isPlaying = true,
+            onPlayPause = {},
+            onOpenSettings = {},
+            onOpenQueuePlayed = {},
+        )
+    }
 }
 
 @Composable

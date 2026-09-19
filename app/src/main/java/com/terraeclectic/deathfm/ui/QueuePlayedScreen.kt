@@ -38,10 +38,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.terraeclectic.deathfm.R
 import com.terraeclectic.deathfm.queueplayed.QueueEntry
+import com.terraeclectic.deathfm.ui.theme.DeathFmTheme
 
 /**
  * Read-only Queue/Played browser - phone/tablet only, deliberately not
@@ -119,6 +121,56 @@ private fun CenteredMessage(content: @Composable () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         content()
+    }
+}
+
+@Preview(name = "Populated")
+@Composable
+private fun QueuePlayedScreenPopulatedPreview() {
+    val sampleEntries = listOf(
+        QueueEntry(rank = 1, thumbnailUrl = null, artist = "Sample Artist One", albumOrTrack = "Sample Track One"),
+        QueueEntry(rank = 2, thumbnailUrl = null, artist = "Sample Artist Two", albumOrTrack = "Sample Track Two"),
+        QueueEntry(rank = 3, thumbnailUrl = null, artist = "Sample Artist Three", albumOrTrack = "Sample Track Three"),
+    )
+    DeathFmTheme {
+        QueuePlayedScreen(
+            isLoading = false,
+            errorMessage = null,
+            queue = sampleEntries,
+            played = sampleEntries,
+            onRefresh = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(name = "Empty")
+@Composable
+private fun QueuePlayedScreenEmptyPreview() {
+    DeathFmTheme {
+        QueuePlayedScreen(
+            isLoading = false,
+            errorMessage = null,
+            queue = emptyList(),
+            played = emptyList(),
+            onRefresh = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(name = "Error")
+@Composable
+private fun QueuePlayedScreenErrorPreview() {
+    DeathFmTheme {
+        QueuePlayedScreen(
+            isLoading = false,
+            errorMessage = "Couldn't load the queue.",
+            queue = emptyList(),
+            played = emptyList(),
+            onRefresh = {},
+            onBack = {},
+        )
     }
 }
 
