@@ -322,13 +322,11 @@ private fun PortraitPlayerLayout(
 }
 
 /**
- * Side-by-side split for landscape: artwork on the left sized to the
- * available height (rather than full-width square like portrait - there
- * usually isn't room for both a full square AND a stack of text/controls
- * below it once the screen is wider than it is tall), now-playing details
- * and controls in a column on the right. No reflection here - it was
- * specifically a portrait-mode "art transitions into the info below it"
- * effect, which doesn't apply to a side-by-side layout.
+ * Side-by-side split for landscape: artwork on the left sized to 80% of the
+ * available height (rather than the full height, or a full-width square
+ * like portrait) so there's still room for a short reflection strip below
+ * it, same iTunes Cover Flow-style effect as portrait just scaled down to
+ * fit - now-playing details and controls in a column on the right.
  */
 @Composable
 private fun LandscapePlayerLayout(
@@ -342,24 +340,75 @@ private fun LandscapePlayerLayout(
     isPlaying: Boolean,
     onPlayPause: () -> Unit,
 ) {
-    Row(
+    var artworkBottomPx by remember { mutableIntStateOf(0) }
+    var artworkSizePx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        AsyncImage(
-            model = coverUrl,
-            fallback = painterResource(R.drawable.album_art_placeholder),
-            error = painterResource(R.drawable.album_art_placeholder),
-            contentDescription = "Album art",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxHeight()
-                .aspectRatio(1f),
-        )
+        // Reflection - same technique as portrait's (see its comments for
+        // why requiredHeight/BoxWithConstraints/aspectRatio alone all failed
+        // here): a full, un-squashed copy of the artwork sized to its own
+        // measured dimensions, flipped, positioned via offset to start
+        // exactly at the artwork's real bottom edge, faded to the
+        // background color well before reaching the bottom of the
+        // available ~20% of height left for it.
+        if (artworkBottomPx > 0 && artworkSizePx > 0) {
+            val artworkBottomDp = with(density) { artworkBottomPx.toDp() }
+            val artworkSizeDp = with(density) { artworkSizePx.toDp() }
+            Box(
+                modifier = Modifier
+                    .size(artworkSizeDp)
+                    .offset(y = artworkBottomDp),
+            ) {
+                AsyncImage(
+                    model = coverUrl,
+                    fallback = painterResource(R.drawable.album_art_placeholder),
+                    error = painterResource(R.drawable.album_art_placeholder),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { scaleY = -1f }
+                        .alpha(0.35f),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0f to Color.Transparent,
+                                    0.45f to MaterialTheme.colorScheme.background,
+                                    1f to MaterialTheme.colorScheme.background,
+                                ),
+                            ),
+                        ),
+                )
+            }
+        }
 
-        Column(
+        Row(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = coverUrl,
+                fallback = painterResource(R.drawable.album_art_placeholder),
+                error = painterResource(R.drawable.album_art_placeholder),
+                contentDescription = "Album art",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxHeight(0.8f)
+                    .aspectRatio(1f)
+                    .onGloballyPositioned { coordinates ->
+                        artworkBottomPx = (coordinates.positionInRoot().y + coordinates.size.height).roundToInt()
+                        artworkSizePx = coordinates.size.height
+                    },
+            )
+
+            Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
@@ -404,6 +453,7 @@ private fun LandscapePlayerLayout(
                 iconTint = MaterialTheme.colorScheme.onPrimary,
             )
         }
+    }
     }
 }
 
