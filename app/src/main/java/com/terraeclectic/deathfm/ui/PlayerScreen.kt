@@ -90,6 +90,7 @@ fun PlayerScreen(
         contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
         var artworkHeightPx by remember { mutableIntStateOf(0) }
+        var reflectionImgHeightPx by remember { mutableIntStateOf(0) } // TEMPORARY debug
         val density = LocalDensity.current
 
         Box(modifier = Modifier.fillMaxSize()) {
@@ -176,6 +177,7 @@ fun PlayerScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .requiredHeight(with(density) { artworkHeightPx.toDp() })
+                                    .onSizeChanged { reflectionImgHeightPx = it.height } // TEMPORARY debug
                                     .graphicsLayer { scaleY = -1f }
                                     // TEMPORARY: full opacity, no dimming, so
                                     // the actual raw content is unambiguous in
@@ -273,6 +275,20 @@ fun PlayerScreen(
                     modifier = Modifier.size(24.dp),
                 )
             }
+
+            // TEMPORARY debug readout - prints the actual measured pixel
+            // heights so we can see numerically whether requiredHeight is
+            // really landing at the real artwork's height, instead of
+            // inferring it from how compressed the reflection looks.
+            Text(
+                text = "art=${artworkHeightPx}px  imgReflection=${reflectionImgHeightPx}px",
+                color = Color.Cyan,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .background(Color.Black)
+                    .padding(4.dp),
+            )
         }
     }
 }
