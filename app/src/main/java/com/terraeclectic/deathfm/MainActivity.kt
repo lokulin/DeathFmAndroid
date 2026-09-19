@@ -21,6 +21,7 @@ import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_ELAPSE
 import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_FETCHED_AT_DEVICE_MS
 import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_LENGTH_MS
 import com.terraeclectic.deathfm.playback.Stations
+import com.terraeclectic.deathfm.ui.LastFmConnectionState
 import com.terraeclectic.deathfm.ui.PlayerScreen
 import com.terraeclectic.deathfm.ui.SettingsScreen
 import com.terraeclectic.deathfm.ui.theme.DeathFmTheme
@@ -51,7 +52,19 @@ class MainActivity : ComponentActivity() {
                 var trackLengthMs by remember { mutableStateOf(0L) }
                 var trackElapsedAtFetchMs by remember { mutableStateOf(0L) }
                 var trackFetchedAtDeviceMs by remember { mutableStateOf(0L) }
-                var isConnected by remember { mutableStateOf((application as DeathFmApp).settings.isLastFmConnected) }
+                var lastFmState by remember {
+                    mutableStateOf<LastFmConnectionState>(
+                        if ((application as DeathFmApp).settings.isLastFmConnected) {
+                            LastFmConnectionState.Connected
+                        } else {
+                            LastFmConnectionState.Disconnected
+                        },
+                    )
+                }
+                // Set once getToken() succeeds, needed again when the user
+                // confirms they approved it in the browser - Last.fm's
+                // auth.getSession call takes the same token, not a fresh one.
+                var pendingAuthToken by remember { mutableStateOf<String?>(null) }
 
                 DisposableEffect(Unit) {
                     val sessionToken = SessionToken(this@MainActivity, android.content.ComponentName(this@MainActivity, PlaybackService::class.java))
@@ -107,13 +120,33 @@ class MainActivity : ComponentActivity() {
                     val settings = (application as DeathFmApp).settings
                     SettingsScreen(
                         settings = settings,
-                        isConnected = isConnected,
+                        connectionState = lastFmState,
                         onConnectClicked = { apiKey, apiSecret ->
-                            connectLastFm(apiKey, apiSecret) { connected -> isConnected = connected }
+                            startLastFmConnect(
+                                apiKey = apiKey,
+                                apiSecret = apiSecret,
+                                onToken = { token -> pendingAuthToken = token },
+                                onStateChange = { state -> lastFmState = state },
+                            )
+                        },
+                        onApprovedClicked = {
+                            val token = pendingAuthToken
+                            if (token != null) {
+                                confirmLastFmApproval(
+                                    apiKey = settings.lastFmApiKey.orEmpty(),
+                                    apiSecret = settings.lastFmApiSecret.orEmpty(),
+                                    token = token,
+                                    onStateChange = { state -> lastFmState = state },
+                                )
+                            }
+                        },
+                        onCancelConnect = {
+                            pendingAuthToken = null
+                            lastFmState = LastFmConnectionState.Disconnected
                         },
                         onDisconnectClicked = {
                             settings.clearLastFmSession()
-                            isConnected = false
+                            lastFmState = LastFmConnectionState.Disconnected
                         },
                         onBack = { showSettings = false },
                     )
@@ -142,29 +175,65 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Last.fm's desktop-app auth flow: get a token, send the user to approve
-     * it in a browser, then poll auth.getSession once they confirm - same
-     * shape as DeathFmTray's Settings "Connect..." button, just without a
-     * WinForms dialog to drive it.
+     * Step 1 of Last.fm's desktop-app auth flow: get a token and send the
+     * user to approve it in a browser. Unlike an earlier version of this,
+     * it does NOT assume the user has approved anything yet - it just opens
+     * the browser and reports [LastFmConnectionState.AwaitingApproval];
+     * [confirmLastFmApproval] (step 2) only runs once the user comes back
+     * and explicitly confirms it, via the Settings screen's "I've approved
+     * it" button.
      */
-    private fun connectLastFm(apiKey: String, apiSecret: String, onResult: (Boolean) -> Unit) {
+    private fun startLastFmConnect(
+        apiKey: String,
+        apiSecret: String,
+        onToken: (String) -> Unit,
+        onStateChange: (LastFmConnectionState) -> Unit,
+    ) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val client = LastFmClient(apiKey, apiSecret)
                 val token = client.getToken()
                 val authUrl = client.buildAuthUrl(token)
                 launch(Dispatchers.Main) {
+                    onToken(token)
+                    onStateChange(LastFmConnectionState.AwaitingApproval)
                     startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(authUrl)))
                 }
-                // TODO: this fires immediately after opening the browser, before
-                // the user has actually approved anything - a skeleton stand-in
-                // for a real "I've approved it" confirmation step/button.
-                kotlinx.coroutines.delay(5000)
+            } catch (e: Exception) {
+                Log.w(TAG, "Last.fm getToken failed", e)
+                launch(Dispatchers.Main) {
+                    onStateChange(LastFmConnectionState.Failed("Couldn't reach Last.fm - check your API key/secret and try again."))
+                }
+            }
+        }
+    }
+
+    /**
+     * Step 2: called once the user taps "I've approved it". If they didn't
+     * actually approve it in the browser first, auth.getSession fails with
+     * a normal Last.fm API error, which surfaces as
+     * [LastFmConnectionState.Failed] - its "Try again" button restarts from
+     * step 1 rather than retrying this same token, since Last.fm tokens are
+     * single-use/time-limited and a fresh one is safer than assuming this
+     * one is still good.
+     */
+    private fun confirmLastFmApproval(
+        apiKey: String,
+        apiSecret: String,
+        token: String,
+        onStateChange: (LastFmConnectionState) -> Unit,
+    ) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val client = LastFmClient(apiKey, apiSecret)
                 val sessionKey = client.getSession(token)
                 (application as DeathFmApp).settings.lastFmSessionKey = sessionKey
-                launch(Dispatchers.Main) { onResult(true) }
+                launch(Dispatchers.Main) { onStateChange(LastFmConnectionState.Connected) }
             } catch (e: Exception) {
-                launch(Dispatchers.Main) { onResult(false) }
+                Log.w(TAG, "Last.fm getSession failed", e)
+                launch(Dispatchers.Main) {
+                    onStateChange(LastFmConnectionState.Failed("Last.fm hasn't confirmed the approval yet - make sure you approved access in the browser tab, then try again."))
+                }
             }
         }
     }

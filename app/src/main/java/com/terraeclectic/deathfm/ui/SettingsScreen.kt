@@ -11,6 +11,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -27,16 +29,23 @@ import com.terraeclectic.deathfm.settings.SettingsStore
 /**
  * Last.fm credentials editor - the Android equivalent of DeathFmTray's
  * SettingsForm.cs, minus Discord (no viable RPC surface on mobile - see
- * README discussion). "Connect" opens Last.fm's browser auth page; finishing
- * the flow (auth.getSession) is wired up by whoever hosts this screen, since
- * it needs a LastFmClient + coroutine scope, not just UI state.
+ * README discussion).
+ *
+ * The Connect flow mirrors Last.fm's real desktop-app auth steps rather than
+ * faking it: [LastFmConnectionState.AwaitingApproval] means a browser tab is
+ * open for the user to approve the app in, and this screen just waits for
+ * them to come back and confirm - `auth.getSession` (the network step that
+ * actually needs a LastFmClient + coroutine scope) is wired up by whoever
+ * hosts this screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     settings: SettingsStore,
-    isConnected: Boolean,
+    connectionState: LastFmConnectionState,
     onConnectClicked: (apiKey: String, apiSecret: String) -> Unit,
+    onApprovedClicked: () -> Unit,
+    onCancelConnect: () -> Unit,
     onDisconnectClicked: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -63,6 +72,9 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Last.fm scrobbling")
+
+            val fieldsEditable = connectionState is LastFmConnectionState.Disconnected ||
+                connectionState is LastFmConnectionState.Failed
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = {
@@ -70,6 +82,7 @@ fun SettingsScreen(
                     settings.lastFmApiKey = it
                 },
                 label = { Text("API key") },
+                enabled = fieldsEditable,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -79,15 +92,39 @@ fun SettingsScreen(
                     settings.lastFmApiSecret = it
                 },
                 label = { Text("Shared secret") },
+                enabled = fieldsEditable,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (isConnected) {
-                Button(onClick = onDisconnectClicked) { Text("Disconnect") }
-            } else {
-                Button(
-                    onClick = { onConnectClicked(apiKey, apiSecret) },
-                    enabled = apiKey.isNotBlank() && apiSecret.isNotBlank(),
-                ) { Text("Connect…") }
+
+            when (connectionState) {
+                is LastFmConnectionState.Disconnected -> {
+                    Button(
+                        onClick = { onConnectClicked(apiKey, apiSecret) },
+                        enabled = apiKey.isNotBlank() && apiSecret.isNotBlank(),
+                    ) { Text("Connect…") }
+                }
+
+                is LastFmConnectionState.Failed -> {
+                    Text(
+                        text = connectionState.message,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Button(
+                        onClick = { onConnectClicked(apiKey, apiSecret) },
+                        enabled = apiKey.isNotBlank() && apiSecret.isNotBlank(),
+                    ) { Text("Try again") }
+                }
+
+                is LastFmConnectionState.AwaitingApproval -> {
+                    Text("Approve access to your Last.fm account in the browser tab that just opened, then come back and tap below.")
+                    Button(onClick = onApprovedClicked) { Text("I've approved it") }
+                    OutlinedButton(onClick = onCancelConnect) { Text("Cancel") }
+                }
+
+                is LastFmConnectionState.Connected -> {
+                    Text("Connected to Last.fm.")
+                    Button(onClick = onDisconnectClicked) { Text("Disconnect") }
+                }
             }
         }
     }

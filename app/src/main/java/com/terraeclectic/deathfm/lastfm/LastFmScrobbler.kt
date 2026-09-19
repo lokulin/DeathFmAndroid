@@ -26,14 +26,12 @@ class LastFmScrobbler(
     private val settings: SettingsStore,
     private val nowPlaying: StateFlow<NowPlayingMetadata>,
 ) {
-    private var client: LastFmClient? = null
     private var job: Job? = null
     private var lastScrobbledKey: String? = null
     private var lastNowPlayingKey: String? = null
     private var isPlaying: Boolean = false
 
     fun start(scope: CoroutineScope) {
-        refreshClient()
         job?.cancel()
         job = scope.launch(Dispatchers.IO) {
             nowPlaying.collect { metadata -> onMetadata(metadata) }
@@ -50,22 +48,19 @@ class LastFmScrobbler(
         if (!playing) lastNowPlayingKey = null
     }
 
-    /** Call after Settings changes the API key/secret/session, so a new client picks them up. */
-    fun refreshClient() {
+    private fun onMetadata(metadata: NowPlayingMetadata) {
         val apiKey = settings.lastFmApiKey
         val apiSecret = settings.lastFmApiSecret
-        client = if (!apiKey.isNullOrBlank() && !apiSecret.isNullOrBlank()) {
-            LastFmClient(apiKey, apiSecret)
-        } else {
-            null
-        }
-    }
-
-    private fun onMetadata(metadata: NowPlayingMetadata) {
         val sessionKey = settings.lastFmSessionKey
-        val lastFm = client
-        if (!isPlaying || sessionKey.isNullOrBlank() || lastFm == null) return
+        if (!isPlaying || sessionKey.isNullOrBlank() || apiKey.isNullOrBlank() || apiSecret.isNullOrBlank()) return
         if (metadata.trackKey == lastScrobbledKey) return
+
+        // Built fresh from current settings each time, rather than cached at
+        // start() - this is a long-lived Service, so a client cached once
+        // would keep using stale API key/secret if the user edits Settings
+        // while it's already running. Constructing one is cheap (no network
+        // call), so there's no real cost to not caching it.
+        val lastFm = LastFmClient(apiKey, apiSecret)
 
         try {
             if (metadata.trackKey != lastNowPlayingKey) {
