@@ -130,28 +130,26 @@ fun PlayerScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { scaleY = -1f }
-                            .alpha(0.35f),
+                            // TEMPORARY: full opacity, gradient below
+                            // disabled - so the whole flipped copy is
+                            // visible to check positioning/framing directly.
+                            .alpha(1f),
                     )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    // Front-loaded into the first ~45% of the
-                                    // full height, rather than spread evenly
-                                    // across it - reaches solid background
-                                    // color well before the bottom, giving
-                                    // the visual impression of a short
-                                    // reflection without fading so fast it's
-                                    // barely visible at all.
-                                    colorStops = arrayOf(
-                                        0f to Color.Transparent,
-                                        0.45f to MaterialTheme.colorScheme.background,
-                                        1f to MaterialTheme.colorScheme.background,
-                                    ),
-                                ),
-                            ),
-                    )
+                    // TEMPORARY: gradient disabled while debugging - restore
+                    // the fade once the offset/framing is confirmed correct.
+                    // Box(
+                    //     modifier = Modifier
+                    //         .fillMaxSize()
+                    //         .background(
+                    //             Brush.verticalGradient(
+                    //                 colorStops = arrayOf(
+                    //                     0f to Color.Transparent,
+                    //                     0.45f to MaterialTheme.colorScheme.background,
+                    //                     1f to MaterialTheme.colorScheme.background,
+                    //                 ),
+                    //             ),
+                    //         ),
+                    // )
                 }
             }
 
