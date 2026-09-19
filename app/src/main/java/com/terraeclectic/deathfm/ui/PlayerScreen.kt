@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -343,6 +345,10 @@ private fun LandscapePlayerLayout(
     var artworkBottomPx by remember { mutableIntStateOf(0) }
     var artworkSizePx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    // Same width as the status bar's own height - purely for symmetry, so
+    // the artwork/reflection aren't wedged flush against the left edge in
+    // landscape the way they visually aren't against the top edge either.
+    val edgePaddingDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
 
     // No statusBarsPadding/navigationBarsPadding on this outer Box itself -
     // that's applied to the Row below instead. positionInRoot() (used to
@@ -365,7 +371,7 @@ private fun LandscapePlayerLayout(
             Box(
                 modifier = Modifier
                     .size(artworkSizeDp)
-                    .offset(y = artworkBottomDp),
+                    .offset(x = edgePaddingDp, y = artworkBottomDp),
             ) {
                 AsyncImage(
                     model = coverUrl,
@@ -398,7 +404,8 @@ private fun LandscapePlayerLayout(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                .padding(start = edgePaddingDp),
         ) {
             AsyncImage(
                 model = coverUrl,
