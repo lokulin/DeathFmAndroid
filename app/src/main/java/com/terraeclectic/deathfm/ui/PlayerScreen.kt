@@ -1,6 +1,7 @@
 package com.terraeclectic.deathfm.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -111,6 +112,11 @@ fun PlayerScreen(
                         .statusBarsPadding()
                         .fillMaxWidth()
                         .aspectRatio(1f)
+                        // TEMPORARY debug border - marks the real artwork's
+                        // exact bottom edge, to compare against the
+                        // reflection's debug border below it. Remove once
+                        // the reflection is confirmed correct.
+                        .border(2.dp, Color.Yellow)
                         // Captures this Image's actual final rendered height,
                         // in real pixels, once layout settles - the
                         // reflection below copies this exact value rather
@@ -153,7 +159,13 @@ fun PlayerScreen(
                                 .fillMaxWidth()
                                 .height(ReflectionHeight)
                                 .align(Alignment.TopCenter)
-                                .clipToBounds(),
+                                .clipToBounds()
+                                // TEMPORARY debug border - marks exactly where
+                                // the clip window is, so a screenshot can
+                                // confirm whether the content inside it is
+                                // really a continuation of the real artwork's
+                                // bottom edge. Remove once confirmed correct.
+                                .border(2.dp, Color.Cyan),
                         ) {
                             AsyncImage(
                                 model = coverUrl,
@@ -165,7 +177,11 @@ fun PlayerScreen(
                                     .fillMaxWidth()
                                     .requiredHeight(with(density) { artworkHeightPx.toDp() })
                                     .graphicsLayer { scaleY = -1f }
-                                    .alpha(0.25f),
+                                    // TEMPORARY: full opacity, no dimming, so
+                                    // the actual raw content is unambiguous in
+                                    // a screenshot - restore to 0.25f once
+                                    // the framing is confirmed correct.
+                                    .alpha(1f),
                             )
                         }
                     }
@@ -176,7 +192,10 @@ fun PlayerScreen(
                             .align(Alignment.TopCenter)
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background),
+                                    // TEMPORARY: gradient disabled (both stops
+                                    // transparent) while debugging - restore
+                                    // the background-color fade once confirmed.
+                                    colors = listOf(Color.Transparent, Color.Transparent),
                                 ),
                             ),
                     )
