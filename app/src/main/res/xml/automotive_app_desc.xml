@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares "this app has a media-browsing surface" to Android Auto. Paired
+     with the MediaBrowserService intent-filter on PlaybackService in the
+     manifest - Auto checks both before it'll list the app. -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

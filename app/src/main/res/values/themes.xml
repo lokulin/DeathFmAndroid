@@ -1,0 +1,10 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Compose draws all the actual UI; this just needs to exist so the
+         manifest/activity have a non-Compose theme to launch with (splash
+         background, status bar color) before the first frame is composed. -->
+    <style name="Theme.DeathFm" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/death_fm_black</item>
+        <item name="android:statusBarColor" tools:targetApi="21">@color/death_fm_black</item>
+        <item name="android:navigationBarColor" tools:targetApi="21">@color/death_fm_black</item>
+    </style>
+</resources>
