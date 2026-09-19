@@ -17,33 +17,41 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.terraeclectic.deathfm.lastfm.LastFmClient
 import com.terraeclectic.deathfm.playback.PlaybackService
+import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_ASIN
 import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_ELAPSED_AT_FETCH_MS
 import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_FETCHED_AT_DEVICE_MS
 import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_LENGTH_MS
 import com.terraeclectic.deathfm.playback.Stations
+import com.terraeclectic.deathfm.queueplayed.QueueEntry
+import com.terraeclectic.deathfm.queueplayed.QueuePlayedRepository
 import com.terraeclectic.deathfm.ui.LastFmConnectionState
 import com.terraeclectic.deathfm.ui.PlayerScreen
+import com.terraeclectic.deathfm.ui.QueuePlayedScreen
 import com.terraeclectic.deathfm.ui.SettingsScreen
 import com.terraeclectic.deathfm.ui.theme.DeathFmTheme
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+private enum class AppScreen { PLAYER, SETTINGS, QUEUE_PLAYED }
+
 /**
- * Hosts a [MediaController] connected to [PlaybackService] and two Compose
- * screens (player / settings) flipped between with plain local state - this
- * is a skeleton, not attempting a nav-graph for two screens.
+ * Hosts a [MediaController] connected to [PlaybackService] and three Compose
+ * screens (player / settings / queue+played) flipped between with plain
+ * local state - this is a skeleton, not attempting a nav-graph for three
+ * screens.
  */
 class MainActivity : ComponentActivity() {
 
     private var controller: MediaController? = null
+    private val queuePlayedRepository = QueuePlayedRepository(Stations.DEATH_FM)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
             DeathFmTheme {
-                var showSettings by remember { mutableStateOf(false) }
+                var screen by remember { mutableStateOf(AppScreen.PLAYER) }
                 var isPlaying by remember { mutableStateOf(false) }
                 var trackTitle by remember { mutableStateOf(Stations.DEATH_FM.displayName) }
                 var trackArtist by remember { mutableStateOf("") }
@@ -52,6 +60,11 @@ class MainActivity : ComponentActivity() {
                 var trackLengthMs by remember { mutableStateOf(0L) }
                 var trackElapsedAtFetchMs by remember { mutableStateOf(0L) }
                 var trackFetchedAtDeviceMs by remember { mutableStateOf(0L) }
+                var trackAsin by remember { mutableStateOf<String?>(null) }
+                var queueEntries by remember { mutableStateOf<List<QueueEntry>>(emptyList()) }
+                var playedEntries by remember { mutableStateOf<List<QueueEntry>>(emptyList()) }
+                var queuePlayedLoading by remember { mutableStateOf(false) }
+                var queuePlayedError by remember { mutableStateOf<String?>(null) }
                 var lastFmState by remember {
                     mutableStateOf<LastFmConnectionState>(
                         if ((application as DeathFmApp).settings.isLastFmConnected) {
@@ -86,6 +99,7 @@ class MainActivity : ComponentActivity() {
                             trackLengthMs = mediaMetadata.extras?.getLong(EXTRA_LENGTH_MS) ?: 0L
                             trackElapsedAtFetchMs = mediaMetadata.extras?.getLong(EXTRA_ELAPSED_AT_FETCH_MS) ?: 0L
                             trackFetchedAtDeviceMs = mediaMetadata.extras?.getLong(EXTRA_FETCHED_AT_DEVICE_MS) ?: 0L
+                            trackAsin = mediaMetadata.extras?.getString(EXTRA_ASIN)
                         }
                         syncFromPlayer(mediaController)
                         Log.d(TAG, "Controller connected, registering listener")
@@ -116,59 +130,90 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (showSettings) {
-                    val settings = (application as DeathFmApp).settings
-                    SettingsScreen(
-                        settings = settings,
-                        connectionState = lastFmState,
-                        onConnectClicked = { apiKey, apiSecret ->
-                            startLastFmConnect(
-                                apiKey = apiKey,
-                                apiSecret = apiSecret,
-                                onToken = { token -> pendingAuthToken = token },
-                                onStateChange = { state -> lastFmState = state },
-                            )
-                        },
-                        onApprovedClicked = {
-                            val token = pendingAuthToken
-                            if (token != null) {
-                                confirmLastFmApproval(
-                                    apiKey = settings.lastFmApiKey.orEmpty(),
-                                    apiSecret = settings.lastFmApiSecret.orEmpty(),
-                                    token = token,
+                when (screen) {
+                    AppScreen.SETTINGS -> {
+                        val settings = (application as DeathFmApp).settings
+                        SettingsScreen(
+                            settings = settings,
+                            connectionState = lastFmState,
+                            onConnectClicked = { apiKey, apiSecret ->
+                                startLastFmConnect(
+                                    apiKey = apiKey,
+                                    apiSecret = apiSecret,
+                                    onToken = { token -> pendingAuthToken = token },
                                     onStateChange = { state -> lastFmState = state },
                                 )
-                            }
-                        },
-                        onCancelConnect = {
-                            pendingAuthToken = null
-                            lastFmState = LastFmConnectionState.Disconnected
-                        },
-                        onDisconnectClicked = {
-                            settings.clearLastFmSession()
-                            lastFmState = LastFmConnectionState.Disconnected
-                        },
-                        onBack = { showSettings = false },
-                    )
-                } else {
-                    PlayerScreen(
-                        station = Stations.DEATH_FM,
-                        trackTitle = trackTitle,
-                        trackArtist = trackArtist,
-                        trackAlbum = trackAlbum,
-                        coverUrl = coverUrl,
-                        trackLengthMs = trackLengthMs,
-                        trackElapsedAtFetchMs = trackElapsedAtFetchMs,
-                        trackFetchedAtDeviceMs = trackFetchedAtDeviceMs,
-                        isPlaying = isPlaying,
-                        onPlayPause = {
-                            controller?.let { c ->
-                                Log.d(TAG, "onPlayPause tapped, c.isPlaying=${c.isPlaying}")
-                                if (c.isPlaying) c.stop() else c.play()
-                            }
-                        },
-                        onOpenSettings = { showSettings = true },
-                    )
+                            },
+                            onApprovedClicked = {
+                                val token = pendingAuthToken
+                                if (token != null) {
+                                    confirmLastFmApproval(
+                                        apiKey = settings.lastFmApiKey.orEmpty(),
+                                        apiSecret = settings.lastFmApiSecret.orEmpty(),
+                                        token = token,
+                                        onStateChange = { state -> lastFmState = state },
+                                    )
+                                }
+                            },
+                            onCancelConnect = {
+                                pendingAuthToken = null
+                                lastFmState = LastFmConnectionState.Disconnected
+                            },
+                            onDisconnectClicked = {
+                                settings.clearLastFmSession()
+                                lastFmState = LastFmConnectionState.Disconnected
+                            },
+                            onBack = { screen = AppScreen.PLAYER },
+                        )
+                    }
+
+                    AppScreen.QUEUE_PLAYED -> {
+                        QueuePlayedScreen(
+                            isLoading = queuePlayedLoading,
+                            errorMessage = queuePlayedError,
+                            queue = queueEntries,
+                            played = playedEntries,
+                            onRefresh = {
+                                fetchQueuePlayed(
+                                    asin = trackAsin,
+                                    onLoadingChange = { loading -> queuePlayedLoading = loading },
+                                    onResult = { queue, played -> queueEntries = queue; playedEntries = played },
+                                    onError = { message -> queuePlayedError = message },
+                                )
+                            },
+                            onBack = { screen = AppScreen.PLAYER },
+                        )
+                    }
+
+                    AppScreen.PLAYER -> {
+                        PlayerScreen(
+                            station = Stations.DEATH_FM,
+                            trackTitle = trackTitle,
+                            trackArtist = trackArtist,
+                            trackAlbum = trackAlbum,
+                            coverUrl = coverUrl,
+                            trackLengthMs = trackLengthMs,
+                            trackElapsedAtFetchMs = trackElapsedAtFetchMs,
+                            trackFetchedAtDeviceMs = trackFetchedAtDeviceMs,
+                            isPlaying = isPlaying,
+                            onPlayPause = {
+                                controller?.let { c ->
+                                    Log.d(TAG, "onPlayPause tapped, c.isPlaying=${c.isPlaying}")
+                                    if (c.isPlaying) c.stop() else c.play()
+                                }
+                            },
+                            onOpenSettings = { screen = AppScreen.SETTINGS },
+                            onOpenQueuePlayed = {
+                                screen = AppScreen.QUEUE_PLAYED
+                                fetchQueuePlayed(
+                                    asin = trackAsin,
+                                    onLoadingChange = { loading -> queuePlayedLoading = loading },
+                                    onResult = { queue, played -> queueEntries = queue; playedEntries = played },
+                                    onError = { message -> queuePlayedError = message },
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -233,6 +278,41 @@ class MainActivity : ComponentActivity() {
                 Log.w(TAG, "Last.fm getSession failed", e)
                 launch(Dispatchers.Main) {
                     onStateChange(LastFmConnectionState.Failed("Last.fm hasn't confirmed the approval yet - make sure you approved access in the browser tab, then try again."))
+                }
+            }
+        }
+    }
+
+    /**
+     * Fetches the Queue/Played lists for whatever track is currently
+     * playing. Deliberately not tied to the playback lifecycle like
+     * [com.terraeclectic.deathfm.nowplaying.NowPlayingRepository] - this is
+     * supplementary info, only fetched while the Queue/Played screen is
+     * actually open (on first opening it, and again on manual refresh).
+     */
+    private fun fetchQueuePlayed(
+        asin: String?,
+        onLoadingChange: (Boolean) -> Unit,
+        onResult: (queue: List<QueueEntry>, played: List<QueueEntry>) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        if (asin == null) {
+            onError("No track playing yet - try again once something's on.")
+            return
+        }
+        onLoadingChange(true)
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val snapshot = queuePlayedRepository.fetch(asin)
+                launch(Dispatchers.Main) {
+                    onLoadingChange(false)
+                    onResult(snapshot.queue, snapshot.played)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Queue/Played fetch failed", e)
+                launch(Dispatchers.Main) {
+                    onLoadingChange(false)
+                    onError("Couldn't load queue/history - check your connection and try again.")
                 }
             }
         }

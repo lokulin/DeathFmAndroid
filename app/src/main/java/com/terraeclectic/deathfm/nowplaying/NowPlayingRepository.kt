@@ -125,6 +125,7 @@ class NowPlayingRepository(
             spinId = playStart ?: 0L,
             coverUrl = obj.optString("CoverLink").ifBlank { null },
             listenerCount = obj.optString("ListenerCount", "0").toIntOrNull() ?: 0,
+            asin = extractAsin(obj.optString("SiteLink")),
         )
     }
 
@@ -139,6 +140,10 @@ class NowPlayingRepository(
     // text (e.g. "All&#039;inizio" for "All'inizio") rather than plain text.
     private fun decodeEntities(text: String): String =
         Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY).toString()
+
+    // "SiteLink": "https://death.fm/modules.php?name=Album&asin=B00004L8BJ"
+    private fun extractAsin(siteLink: String): String? =
+        Regex("[?&]asin=([A-Za-z0-9]+)").find(siteLink)?.groupValues?.get(1)
 
     companion object {
         private const val TAG = "NowPlayingRepository"

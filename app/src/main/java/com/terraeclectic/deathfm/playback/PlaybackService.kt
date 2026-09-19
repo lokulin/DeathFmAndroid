@@ -160,6 +160,7 @@ class PlaybackService : MediaLibraryService() {
                 putLong(EXTRA_LENGTH_MS, metadata.lengthMs)
                 putLong(EXTRA_ELAPSED_AT_FETCH_MS, metadata.elapsedAtFetchMs)
                 putLong(EXTRA_FETCHED_AT_DEVICE_MS, metadata.fetchedAtDeviceMs)
+                putString(EXTRA_ASIN, metadata.asin)
             })
             .build()
 
@@ -256,5 +257,6 @@ class PlaybackService : MediaLibraryService() {
         const val EXTRA_LENGTH_MS = "com.terraeclectic.deathfm.LENGTH_MS"
         const val EXTRA_ELAPSED_AT_FETCH_MS = "com.terraeclectic.deathfm.ELAPSED_AT_FETCH_MS"
         const val EXTRA_FETCHED_AT_DEVICE_MS = "com.terraeclectic.deathfm.FETCHED_AT_DEVICE_MS"
+        const val EXTRA_ASIN = "com.terraeclectic.deathfm.ASIN"
     }
 }

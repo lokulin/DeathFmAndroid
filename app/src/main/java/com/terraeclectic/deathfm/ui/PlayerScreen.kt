@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
@@ -86,6 +87,7 @@ fun PlayerScreen(
     isPlaying: Boolean,
     onPlayPause: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenQueuePlayed: () -> Unit,
 ) {
     // Surface (not just a Column with a background modifier) is what actually
     // propagates the theme's content color to children - without it, Text
@@ -121,6 +123,24 @@ fun PlayerScreen(
                     trackFetchedAtDeviceMs = trackFetchedAtDeviceMs,
                     isPlaying = isPlaying,
                     onPlayPause = onPlayPause,
+                )
+            }
+
+            // Queue/Played: same quiet-icon treatment as Settings, mirrored
+            // to the top-left corner. Phone/tablet only, deliberately not
+            // surfaced to Android Auto - see QueuePlayedScreen's doc.
+            IconButton(
+                onClick = onOpenQueuePlayed,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = "Queue & Played",
+                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    modifier = Modifier.size(24.dp),
                 )
             }
 

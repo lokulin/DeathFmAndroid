@@ -32,6 +32,10 @@ data class NowPlayingMetadata(
     val spinId: Long,
     val coverUrl: String?,
     val listenerCount: Int,
+    // The current track's Amazon ASIN, parsed out of "SiteLink" - needed to
+    // call the player page's own get_db_info endpoint (queue/played history,
+    // genre/year/rating), which is keyed by the currently playing track.
+    val asin: String?,
 ) {
     /** Identity for "has the track actually changed" - spinId is unique per spin (though not a trustworthy absolute time - see class doc). */
     val trackKey: String get() = "$track|$artist|$spinId"
@@ -47,6 +51,7 @@ data class NowPlayingMetadata(
             spinId = 0L,
             coverUrl = null,
             listenerCount = 0,
+            asin = null,
         )
     }
 }

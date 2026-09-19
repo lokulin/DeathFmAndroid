@@ -67,4 +67,8 @@ dependencies {
 
     // Loads now-playing album art (NowPlayingMetadata.coverUrl) into PlayerScreen.
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Parses the Queue/Played HTML fragments out of the player page's
+    // get_db_info endpoint - see queueplayed/QueuePlayedRepository.kt.
+    implementation("org.jsoup:jsoup:1.18.1")
 }
