@@ -51,8 +51,8 @@ class NowPlayingRepository(
         if (pollJob != null) return
         pollJob = scope.launch {
             while (true) {
-                pollOnce()
-                delay(POLL_INTERVAL_MS)
+                val metadata = pollOnce()
+                delay(nextPollDelayMs(metadata))
             }
         }
     }
@@ -66,20 +66,39 @@ class NowPlayingRepository(
     // execute() is a blocking call, which Android hard-fails on the main
     // thread with NetworkOnMainThreadException - withContext(IO) is required
     // here, not optional.
-    private suspend fun pollOnce() {
-        try {
+    private suspend fun pollOnce(): NowPlayingMetadata? {
+        return try {
             withContext(Dispatchers.IO) {
                 val url = "${station.nowPlayingUrl}&_t=${System.currentTimeMillis()}"
                 val request = Request.Builder().url(url).build()
                 httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@withContext
-                    val body = response.body?.string() ?: return@withContext
-                    _nowPlaying.value = parse(body)
+                    if (!response.isSuccessful) return@withContext null
+                    val body = response.body?.string() ?: return@withContext null
+                    val metadata = parse(body)
+                    _nowPlaying.value = metadata
+                    metadata
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Now-playing poll failed", e)
+            null
         }
+    }
+
+    // Rather than always waiting the full POLL_INTERVAL_MS, times the next
+    // poll to land just after the current track is expected to end (using
+    // the real Length/elapsed data we already have) - otherwise the elapsed
+    // readout could sit visibly past a track's length for up to 30s before
+    // the next scheduled poll happens to notice the track actually changed.
+    // Still capped at POLL_INTERVAL_MS as the normal/fallback cadence (a
+    // long remaining time doesn't mean waiting that whole time - regular
+    // polling continues in case something else changes), and floored at
+    // MIN_POLL_DELAY_MS so a just-started or bogus-length track can't cause
+    // a tight poll loop.
+    private fun nextPollDelayMs(metadata: NowPlayingMetadata?): Long {
+        if (metadata == null || metadata.lengthMs <= 0L) return POLL_INTERVAL_MS
+        val remainingMs = metadata.lengthMs - metadata.elapsedAtFetchMs
+        return (remainingMs + END_OF_TRACK_BUFFER_MS).coerceIn(MIN_POLL_DELAY_MS, POLL_INTERVAL_MS)
     }
 
     private fun parse(json: String): NowPlayingMetadata {
@@ -125,7 +144,19 @@ class NowPlayingRepository(
         private const val TAG = "NowPlayingRepository"
         // Matches the death.fm player page's own updateTrackData() polling
         // cadence - no reason to hit the endpoint any harder than the
-        // official web player itself does.
+        // official web player itself does. Also the ceiling for the
+        // end-of-track-timed polling in nextPollDelayMs.
         private const val POLL_INTERVAL_MS = 30_000L
+
+        // Grace period after a track's expected end before polling again -
+        // the station's own database update can lag slightly behind the
+        // actual audio transition, so polling at the exact calculated
+        // instant risked still getting the outgoing track back.
+        private const val END_OF_TRACK_BUFFER_MS = 2_000L
+
+        // Floor on the computed delay, so a track reported with an already-
+        // elapsed or bogus (e.g. zero/negative remaining) length can't turn
+        // into a tight poll loop.
+        private const val MIN_POLL_DELAY_MS = 3_000L
     }
 }
