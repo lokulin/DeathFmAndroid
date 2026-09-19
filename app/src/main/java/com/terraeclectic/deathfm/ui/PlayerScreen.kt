@@ -130,21 +130,23 @@ fun PlayerScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { scaleY = -1f }
-                            .alpha(0.25f),
+                            .alpha(0.35f),
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    // Front-loaded into the first 25% of the
+                                    // Front-loaded into the first ~45% of the
                                     // full height, rather than spread evenly
                                     // across it - reaches solid background
-                                    // color quickly, giving the visual
-                                    // impression of a short reflection.
+                                    // color well before the bottom, giving
+                                    // the visual impression of a short
+                                    // reflection without fading so fast it's
+                                    // barely visible at all.
                                     colorStops = arrayOf(
                                         0f to Color.Transparent,
-                                        0.25f to MaterialTheme.colorScheme.background,
+                                        0.45f to MaterialTheme.colorScheme.background,
                                         1f to MaterialTheme.colorScheme.background,
                                     ),
                                 ),
