@@ -81,12 +81,36 @@ class PlaybackService : MediaLibraryService() {
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             Log.d(TAG, "onIsPlayingChanged: $isPlaying")
+            // Gates actual scrobbling/now-playing updates - deliberately
+            // tied to genuine audible playback (not the more tolerant
+            // updateNowPlayingPolling below), matching Last.fm's own
+            // semantics of "are they actually listening right now."
             scrobbler.setPlaying(isPlaying)
-            // Only poll death.fm's now-playing endpoint while actually
-            // streaming - no reason to spend even the small amount of data/
-            // battery that takes while stopped and nobody's listening.
-            if (isPlaying) nowPlayingRepository.start(serviceScope) else nowPlayingRepository.stop()
         }
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
+                updateNowPlayingPolling(player)
+            }
+        }
+    }
+
+    /**
+     * Starts/stops the now-playing poll based on whether we're genuinely
+     * trying to play - deliberately NOT the same signal as isPlaying above.
+     * isPlaying flips false during any transient rebuffer (STATE_BUFFERING),
+     * not just a real user Stop, which would otherwise stop/restart this
+     * poll on every brief network hiccup instead of only on an actual Stop -
+     * the same class of bug DeathFmTray's scrobbler once had with a
+     * wall-clock timer that reset on any interruption rather than only a
+     * real Stop. playWhenReady stays true through a rebuffer and only turns
+     * false when stop() is actually called.
+     */
+    private fun updateNowPlayingPolling(player: Player) {
+        val shouldPoll = player.playWhenReady &&
+            player.playbackState != Player.STATE_IDLE &&
+            player.playbackState != Player.STATE_ENDED
+        if (shouldPoll) nowPlayingRepository.start(serviceScope) else nowPlayingRepository.stop()
     }
 
     /** Pushes fresh track/artist/artwork into the currently-playing MediaItem so lock-screen, notification, and Auto all pick it up - the stream itself never changes, only its metadata does. */
