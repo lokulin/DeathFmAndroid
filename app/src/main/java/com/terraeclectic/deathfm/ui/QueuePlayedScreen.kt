@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.terraeclectic.deathfm.R
@@ -88,10 +89,18 @@ fun QueuePlayedScreen(
             when {
                 isLoading && entries.isEmpty() -> CenteredMessage { CircularProgressIndicator() }
                 errorMessage != null && entries.isEmpty() -> CenteredMessage {
-                    Text(errorMessage, color = MaterialTheme.colorScheme.error)
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                    )
                 }
                 entries.isEmpty() -> CenteredMessage {
-                    Text("Nothing to show yet.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+                    Text(
+                        text = "Nothing to show yet.",
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center,
+                    )
                 }
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(entries, key = { it.rank }) { entry -> QueueEntryRow(entry) }
@@ -103,7 +112,12 @@ fun QueuePlayedScreen(
 
 @Composable
 private fun CenteredMessage(content: @Composable () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         content()
     }
 }
