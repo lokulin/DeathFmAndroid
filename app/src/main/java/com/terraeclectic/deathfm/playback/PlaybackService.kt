@@ -228,6 +228,26 @@ class PlaybackService : MediaLibraryService() {
             }.toMutableList()
             return Futures.immediateFuture(resolved)
         }
+
+        // Called when Android Auto (or any surface asking "what should play
+        // right now") launches without the user picking anything from the
+        // browse tree - without this, Auto always shows the one-station
+        // browse list first and makes the user tap it, even though there's
+        // only ever one thing to choose. With just one station, there's
+        // nothing to actually "resume" (no meaningful playback position for
+        // a live stream) - this just always hands back that one station, so
+        // launching the app goes straight to the player.
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: ControllerInfo,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
+            Futures.immediateFuture(
+                MediaSession.MediaItemsWithStartPosition(
+                    listOf(stationMediaItem(Stations.DEATH_FM)),
+                    /* startIndex= */ 0,
+                    /* startPositionMs= */ 0L,
+                ),
+            )
     }
 
     companion object {
