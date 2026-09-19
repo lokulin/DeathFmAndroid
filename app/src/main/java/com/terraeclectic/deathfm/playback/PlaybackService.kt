@@ -59,7 +59,6 @@ class PlaybackService : MediaLibraryService() {
 
         val app = application as DeathFmApp
         nowPlayingRepository = NowPlayingRepository(Stations.DEATH_FM)
-        nowPlayingRepository.start(serviceScope)
 
         scrobbler = LastFmScrobbler(app.settings, nowPlayingRepository.nowPlaying)
         scrobbler.start(serviceScope)
@@ -81,7 +80,12 @@ class PlaybackService : MediaLibraryService() {
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            Log.d(TAG, "onIsPlayingChanged: $isPlaying")
             scrobbler.setPlaying(isPlaying)
+            // Only poll death.fm's now-playing endpoint while actually
+            // streaming - no reason to spend even the small amount of data/
+            // battery that takes while stopped and nobody's listening.
+            if (isPlaying) nowPlayingRepository.start(serviceScope) else nowPlayingRepository.stop()
         }
     }
 
@@ -102,6 +106,14 @@ class PlaybackService : MediaLibraryService() {
             .setArtworkUri(metadata.coverUrl?.let { android.net.Uri.parse(it) })
             .setIsPlayable(true)
             .setIsBrowsable(false)
+            // MediaMetadata has no built-in "track length" field (duration
+            // normally comes from the player/Timeline, meaningless for a live
+            // stream) - stashed in extras so the UI can render a playtime
+            // readout from the same real Length/PlayStart the scrobbler uses.
+            .setExtras(android.os.Bundle().apply {
+                putLong(EXTRA_LENGTH_MS, metadata.lengthMs)
+                putLong(EXTRA_PLAY_START_UTC, metadata.playStartUtc)
+            })
             .build()
 
     private fun stationMediaItem(station: Station): MediaItem =
@@ -174,5 +186,7 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private const val TAG = "PlaybackService"
         private const val ROOT_ID = "root"
+        const val EXTRA_LENGTH_MS = "com.terraeclectic.deathfm.LENGTH_MS"
+        const val EXTRA_PLAY_START_UTC = "com.terraeclectic.deathfm.PLAY_START_UTC"
     }
 }

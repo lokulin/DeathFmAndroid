@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icons only guarantee the inner ~66% "safe zone" of the 108dp
+     canvas survives a launcher's own mask (circle/squircle/rounded-square) -
+     the source image's headphone cups and waveform bars reach close to its
+     edges, so inset it in rather than risk them getting clipped. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_launcher_foreground"
+    android:inset="14%" />

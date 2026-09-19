@@ -1,6 +1,7 @@
 package com.terraeclectic.deathfm
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
@@ -9,13 +10,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.MoreExecutors
 import com.terraeclectic.deathfm.lastfm.LastFmClient
 import com.terraeclectic.deathfm.playback.PlaybackService
+import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_LENGTH_MS
+import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_PLAY_START_UTC
 import com.terraeclectic.deathfm.playback.Stations
 import com.terraeclectic.deathfm.ui.PlayerScreen
 import com.terraeclectic.deathfm.ui.SettingsScreen
@@ -42,6 +45,10 @@ class MainActivity : ComponentActivity() {
                 var isPlaying by remember { mutableStateOf(false) }
                 var trackTitle by remember { mutableStateOf(Stations.DEATH_FM.displayName) }
                 var trackArtist by remember { mutableStateOf("") }
+                var trackAlbum by remember { mutableStateOf("") }
+                var coverUrl by remember { mutableStateOf<String?>(null) }
+                var trackLengthMs by remember { mutableStateOf(0L) }
+                var trackPlayStartUtc by remember { mutableStateOf(0L) }
                 var isConnected by remember { mutableStateOf((application as DeathFmApp).settings.isLastFmConnected) }
 
                 DisposableEffect(Unit) {
@@ -54,18 +61,38 @@ class MainActivity : ComponentActivity() {
                             mediaController.setMediaItem(MediaItem.fromUri(Stations.DEATH_FM.streamUrl).buildUpon().setMediaId(Stations.DEATH_FM.id).build())
                             mediaController.prepare()
                         }
-                        isPlaying = mediaController.isPlaying
+                        fun syncFromPlayer(player: Player) {
+                            isPlaying = player.isPlaying
+                            val mediaMetadata = player.mediaMetadata
+                            trackTitle = mediaMetadata.title?.toString() ?: Stations.DEATH_FM.displayName
+                            trackArtist = mediaMetadata.artist?.toString() ?: ""
+                            trackAlbum = mediaMetadata.albumTitle?.toString() ?: ""
+                            coverUrl = mediaMetadata.artworkUri?.toString()
+                            trackLengthMs = mediaMetadata.extras?.getLong(EXTRA_LENGTH_MS) ?: 0L
+                            trackPlayStartUtc = mediaMetadata.extras?.getLong(EXTRA_PLAY_START_UTC) ?: 0L
+                        }
+                        syncFromPlayer(mediaController)
+                        Log.d(TAG, "Controller connected, registering listener")
                         mediaController.addListener(object : Player.Listener {
-                            override fun onIsPlayingChanged(playing: Boolean) {
-                                isPlaying = playing
-                            }
-
-                            override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
-                                trackTitle = mediaMetadata.title?.toString() ?: Stations.DEATH_FM.displayName
-                                trackArtist = mediaMetadata.artist?.toString() ?: ""
+                            // The individual onIsPlayingChanged/onMediaMetadataChanged
+                            // callbacks proved unreliable on a remote MediaController
+                            // (confirmed via Logcat: they fired once on connect, then
+                            // never again despite the service's player state actually
+                            // changing) - onEvents is guaranteed to fire for every
+                            // state-change batch, so just resync everything from the
+                            // live player each time instead of trusting a specific
+                            // per-property callback to fire.
+                            override fun onEvents(player: Player, events: Player.Events) {
+                                Log.d(TAG, "onEvents: $events, isPlaying=${player.isPlaying}")
+                                syncFromPlayer(player)
                             }
                         })
-                    }, MoreExecutors.directExecutor())
+                        // MediaController must be built AND used entirely on its
+                        // owning thread (here, main) - MoreExecutors.directExecutor()
+                        // would run this callback on whatever thread the connection
+                        // happened to complete on (often a binder thread), silently
+                        // breaking listener registration without any error.
+                    }, ContextCompat.getMainExecutor(this@MainActivity))
 
                     onDispose {
                         controller?.release()
@@ -92,9 +119,16 @@ class MainActivity : ComponentActivity() {
                         station = Stations.DEATH_FM,
                         trackTitle = trackTitle,
                         trackArtist = trackArtist,
+                        trackAlbum = trackAlbum,
+                        coverUrl = coverUrl,
+                        trackLengthMs = trackLengthMs,
+                        trackPlayStartUtc = trackPlayStartUtc,
                         isPlaying = isPlaying,
                         onPlayPause = {
-                            controller?.let { c -> if (c.isPlaying) c.stop() else c.play() }
+                            controller?.let { c ->
+                                Log.d(TAG, "onPlayPause tapped, c.isPlaying=${c.isPlaying}")
+                                if (c.isPlaying) c.stop() else c.play()
+                            }
                         },
                         onOpenSettings = { showSettings = true },
                     )
@@ -129,5 +163,9 @@ class MainActivity : ComponentActivity() {
                 launch(Dispatchers.Main) { onResult(false) }
             }
         }
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
     }
 }

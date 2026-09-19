@@ -64,4 +64,7 @@ dependencies {
     // plain Service, not an Activity/ViewModel - lifecycle-runtime-ktx alone
     // doesn't pull this in transitively there.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Loads now-playing album art (NowPlayingMetadata.coverUrl) into PlayerScreen.
+    implementation("io.coil-kt:coil-compose:2.7.0")
 }
