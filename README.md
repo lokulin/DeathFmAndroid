@@ -19,7 +19,7 @@ media controls and Android Auto support essentially for free via Media3.
 | `lastfm/LastFmScrobbler.kt` | Feeds now-playing changes to Last.fm while actually playing; scrobble timing follows Last.fm's real "half the track or 4 minutes" rule. |
 | `settings/SettingsStore.kt` | Last.fm API key/secret/session, in a private `SharedPreferences` file. |
 | `ui/PlayerScreen.kt` | The player screen: full-width square artwork (with an iTunes Cover Flow-style reflection bleeding into the metadata area behind the text), title/album/artist, a live progress bar + elapsed/total readout, a big Play/Stop control, and a small Settings icon in the top-right corner. |
-| `ui/SettingsScreen.kt`, `ui/theme/Theme.kt` | The Last.fm settings screen and the station-red dark theme matching death.fm's own branding. |
+| `ui/SettingsScreen.kt`, `ui/LastFmConnectionState.kt`, `ui/theme/Theme.kt` | The Last.fm settings screen (rendering each step of the real auth flow - Disconnected/AwaitingApproval/Connected/Failed), and the station-red dark theme matching death.fm's own branding. |
 | `res/drawable/ic_launcher_foreground.png`, `res/drawable/album_art_placeholder.png` | The real app icon/artwork-placeholder art (a headphone-wearing skull), used both as the launcher icon (inset for adaptive-icon safe zones) and as the artwork shown before any track art has loaded. |
 | `res/xml/automotive_app_desc.xml` | Declares this as an Android Auto media app (paired with the `MediaBrowserService` intent-filter in the manifest). |
 
@@ -38,11 +38,10 @@ though - not a finished app:
   unit or the Desktop Head Unit emulator yet.
 - No Discord Rich Presence - unlike the desktop app, there's no local RPC
   pipe to talk to on Android, so it's out of scope here entirely.
-- Last.fm's "Connect..." flow (`MainActivity.connectLastFm`) opens the
-  browser auth page but doesn't yet wait for a real "I've approved it"
-  confirmation before calling `auth.getSession` - currently just a fixed
-  delay as a placeholder. Scrobbling itself is wired up but hasn't been
-  tested against a real Last.fm account yet.
+- Last.fm's Connect flow is fully wired (real two-step auth: opens the
+  browser, then waits for the user to explicitly confirm they approved it
+  before calling `auth.getSession` - see `LastFmConnectionState`), but
+  hasn't been tested end-to-end against a real Last.fm account yet.
 - The Settings screen only covers Last.fm credentials - no equivalent yet of
   the desktop app's "start with system"/notification behavior toggles (less
   relevant on Android, but worth revisiting).
