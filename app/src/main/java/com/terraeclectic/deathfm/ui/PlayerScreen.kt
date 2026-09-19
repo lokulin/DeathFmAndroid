@@ -3,7 +3,9 @@ package com.terraeclectic.deathfm.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -58,12 +60,16 @@ import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /**
- * Single-screen player UI: full-width square artwork up top (with a faded
- * reflection bleeding into the metadata area below it, iTunes Cover
- * Flow-style), track details + progress centered underneath, one big
- * transport control at the bottom. Settings is a small, deliberately
- * quiet icon in the top-right corner rather than competing with the
- * transport control for visual weight.
+ * Player UI, laid out differently depending on orientation: portrait gets
+ * full-width square artwork up top (with a faded reflection bleeding into
+ * the metadata area below it, iTunes Cover Flow-style) and everything else
+ * stacked underneath; landscape (rotation is no longer locked - a tablet in
+ * landscape looked odd stretched into the portrait layout) gets a side by
+ * side split, artwork on the left and now-playing details on the right,
+ * since there's usually not enough height in landscape for a full square
+ * plus a stack of text and controls below it. Settings is a small,
+ * deliberately quiet icon in the top-right corner in both, rather than
+ * competing with the transport control for visual weight.
  */
 @Composable
 fun PlayerScreen(
@@ -89,10 +95,71 @@ fun PlayerScreen(
         color = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
-        var artworkBottomPx by remember { mutableIntStateOf(0) }
-        val density = LocalDensity.current
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            if (maxWidth > maxHeight) {
+                LandscapePlayerLayout(
+                    trackTitle = trackTitle,
+                    trackArtist = trackArtist,
+                    trackAlbum = trackAlbum,
+                    coverUrl = coverUrl,
+                    trackLengthMs = trackLengthMs,
+                    trackElapsedAtFetchMs = trackElapsedAtFetchMs,
+                    trackFetchedAtDeviceMs = trackFetchedAtDeviceMs,
+                    isPlaying = isPlaying,
+                    onPlayPause = onPlayPause,
+                )
+            } else {
+                PortraitPlayerLayout(
+                    trackTitle = trackTitle,
+                    trackArtist = trackArtist,
+                    trackAlbum = trackAlbum,
+                    coverUrl = coverUrl,
+                    trackLengthMs = trackLengthMs,
+                    trackElapsedAtFetchMs = trackElapsedAtFetchMs,
+                    trackFetchedAtDeviceMs = trackFetchedAtDeviceMs,
+                    isPlaying = isPlaying,
+                    onPlayPause = onPlayPause,
+                )
+            }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+            // Settings: a small, quiet icon rather than a same-sized button
+            // next to Play/Stop - a large touch target doesn't require an
+            // equally large visible control, and this one isn't the primary
+            // action on the screen. Shared between both orientations.
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PortraitPlayerLayout(
+    trackTitle: String,
+    trackArtist: String,
+    trackAlbum: String,
+    coverUrl: String?,
+    trackLengthMs: Long,
+    trackElapsedAtFetchMs: Long,
+    trackFetchedAtDeviceMs: Long,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+) {
+    var artworkBottomPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+
+    Box(modifier = Modifier.fillMaxSize()) {
             // Reflection: a full, un-squashed copy of the artwork, flipped
             // and positioned to start exactly where the real artwork's own
             // bottom edge actually is on screen (artworkBottomPx, captured
@@ -251,25 +318,91 @@ fun PlayerScreen(
                     )
                 }
             }
+    }
+}
 
-            // Settings: a small, quiet icon rather than a same-sized button
-            // next to Play/Stop - a large touch target doesn't require an
-            // equally large visible control, and this one isn't the primary
-            // action on the screen.
-            IconButton(
-                onClick = onOpenSettings,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(4.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = "Settings",
-                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    modifier = Modifier.size(24.dp),
+/**
+ * Side-by-side split for landscape: artwork on the left sized to the
+ * available height (rather than full-width square like portrait - there
+ * usually isn't room for both a full square AND a stack of text/controls
+ * below it once the screen is wider than it is tall), now-playing details
+ * and controls in a column on the right. No reflection here - it was
+ * specifically a portrait-mode "art transitions into the info below it"
+ * effect, which doesn't apply to a side-by-side layout.
+ */
+@Composable
+private fun LandscapePlayerLayout(
+    trackTitle: String,
+    trackArtist: String,
+    trackAlbum: String,
+    coverUrl: String?,
+    trackLengthMs: Long,
+    trackElapsedAtFetchMs: Long,
+    trackFetchedAtDeviceMs: Long,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+    ) {
+        AsyncImage(
+            model = coverUrl,
+            fallback = painterResource(R.drawable.album_art_placeholder),
+            error = painterResource(R.drawable.album_art_placeholder),
+            contentDescription = "Album art",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxHeight()
+                .aspectRatio(1f),
+        )
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = trackTitle,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            if (trackAlbum.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = trackAlbum,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f),
+                    textAlign = TextAlign.Center,
                 )
             }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = trackArtist,
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            PlaybackProgress(
+                lengthMs = trackLengthMs,
+                elapsedAtFetchMs = trackElapsedAtFetchMs,
+                fetchedAtDeviceMs = trackFetchedAtDeviceMs,
+                isPlaying = isPlaying,
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            CircularButton(
+                icon = if (isPlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                contentDescription = if (isPlaying) "Stop" else "Play",
+                onClick = onPlayPause,
+                containerColor = MaterialTheme.colorScheme.primary,
+                iconTint = MaterialTheme.colorScheme.onPrimary,
+            )
         }
     }
 }

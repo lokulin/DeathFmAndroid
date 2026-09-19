@@ -28,9 +28,9 @@
 
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true"
             android:launchMode="singleTop"
-            android:screenOrientation="portrait"
             android:theme="@style/Theme.DeathFm">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
