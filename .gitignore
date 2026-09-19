@@ -3,7 +3,9 @@
 /local.properties
 /.idea/
 .DS_Store
-/build
+# No leading slash - matches the root build/ dir AND every module's own
+# (e.g. app/build/), which "/build" alone does not.
+build/
 /captures
 .externalNativeBuild
 .cxx

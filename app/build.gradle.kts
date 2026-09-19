@@ -48,6 +48,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
+    implementation("androidx.compose.material:material-icons-extended")
 
     // Media3: ExoPlayer for streaming + MediaLibraryService, which is what
     // both the lock-screen/notification controls AND Android Auto are driven
