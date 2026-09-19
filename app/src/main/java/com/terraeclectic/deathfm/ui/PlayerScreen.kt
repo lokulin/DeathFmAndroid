@@ -42,7 +42,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -54,6 +55,7 @@ import coil.compose.AsyncImage
 import com.terraeclectic.deathfm.R
 import com.terraeclectic.deathfm.playback.Station
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 /**
  * Single-screen player UI: full-width square artwork up top (with a faded
@@ -87,15 +89,18 @@ fun PlayerScreen(
         color = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
-        var artworkHeightPx by remember { mutableIntStateOf(0) }
+        var artworkBottomPx by remember { mutableIntStateOf(0) }
         val density = LocalDensity.current
 
         Box(modifier = Modifier.fillMaxSize()) {
             // Reflection: a full, un-squashed copy of the artwork, flipped
-            // and positioned to start exactly where the real artwork ends
-            // (offset by its own measured height, captured below) - drawn
-            // as the first child here so everything else (the Column with
-            // the real artwork and metadata) paints on top of it, same
+            // and positioned to start exactly where the real artwork's own
+            // bottom edge actually is on screen (artworkBottomPx, captured
+            // below via onGloballyPositioned - not just the artwork's own
+            // height, which would miss the statusBarsPadding pushing it
+            // down and made the reflection start too early by that much).
+            // Drawn as the first child here so everything else (the Column
+            // with the real artwork and metadata) paints on top of it, same
             // z-order as classic Cover Flow.
             //
             // Deliberately NOT sized/clipped down to a short "reflection
@@ -109,17 +114,17 @@ fun PlayerScreen(
             // constraint it ever sees is "the whole screen," so
             // aspectRatio(1f) sizes it correctly without a fight. The
             // "short reflection" look is achieved entirely by the gradient
-            // below fading to the background color within the first ~25%
+            // below fading to the background color within the first ~45%
             // of its height - the rest of the (identical, just unseen)
             // copy is harmless, since it's already fully background-colored
             // by then regardless of what's technically drawn there.
-            if (artworkHeightPx > 0) {
-                val artworkHeightDp = with(density) { artworkHeightPx.toDp() }
+            if (artworkBottomPx > 0) {
+                val artworkBottomDp = with(density) { artworkBottomPx.toDp() }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f)
-                        .offset(y = artworkHeightDp),
+                        .offset(y = artworkBottomDp),
                 ) {
                     AsyncImage(
                         model = coverUrl,
@@ -130,26 +135,28 @@ fun PlayerScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { scaleY = -1f }
-                            // TEMPORARY: full opacity, gradient below
-                            // disabled - so the whole flipped copy is
-                            // visible to check positioning/framing directly.
-                            .alpha(1f),
+                            .alpha(0.35f),
                     )
-                    // TEMPORARY: gradient disabled while debugging - restore
-                    // the fade once the offset/framing is confirmed correct.
-                    // Box(
-                    //     modifier = Modifier
-                    //         .fillMaxSize()
-                    //         .background(
-                    //             Brush.verticalGradient(
-                    //                 colorStops = arrayOf(
-                    //                     0f to Color.Transparent,
-                    //                     0.45f to MaterialTheme.colorScheme.background,
-                    //                     1f to MaterialTheme.colorScheme.background,
-                    //                 ),
-                    //             ),
-                    //         ),
-                    // )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    // Front-loaded into the first ~45% of the
+                                    // full height, rather than spread evenly
+                                    // across it - reaches solid background
+                                    // color well before the bottom, giving
+                                    // the visual impression of a short
+                                    // reflection without fading so fast it's
+                                    // barely visible at all.
+                                    colorStops = arrayOf(
+                                        0f to Color.Transparent,
+                                        0.45f to MaterialTheme.colorScheme.background,
+                                        1f to MaterialTheme.colorScheme.background,
+                                    ),
+                                ),
+                            ),
+                    )
                 }
             }
 
@@ -172,11 +179,17 @@ fun PlayerScreen(
                         .statusBarsPadding()
                         .fillMaxWidth()
                         .aspectRatio(1f)
-                        // Captures this Image's actual final rendered height,
-                        // in real pixels, once layout settles - the
-                        // reflection above copies this exact value so it
-                        // starts precisely at the real artwork's bottom edge.
-                        .onSizeChanged { artworkHeightPx = it.height },
+                        // Captures this Image's actual on-screen BOTTOM edge
+                        // position (not just its own height!) - the
+                        // reflection above is offset from y=0 of the shared
+                        // parent Box, so it needs the artwork's position
+                        // INCLUDING the statusBarsPadding above it, not just
+                        // the square's own height, or it starts too early by
+                        // exactly the status bar's height (duplicating a
+                        // sliver of the real artwork into the reflection).
+                        .onGloballyPositioned { coordinates ->
+                            artworkBottomPx = (coordinates.positionInRoot().y + coordinates.size.height).roundToInt()
+                        },
                 )
 
                 Box(
