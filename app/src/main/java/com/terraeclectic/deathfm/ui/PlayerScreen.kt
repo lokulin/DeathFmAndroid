@@ -344,12 +344,14 @@ private fun LandscapePlayerLayout(
     var artworkSizePx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-    ) {
+    // No statusBarsPadding/navigationBarsPadding on this outer Box itself -
+    // that's applied to the Row below instead. positionInRoot() (used to
+    // compute artworkBottomPx) reports an absolute screen coordinate, which
+    // already accounts for the Row's own inset padding shifting it down -
+    // putting the same padding on THIS Box too would shift its origin down
+    // an extra time, so offset(y = artworkBottomDp) below would double-count
+    // the status bar height as a gap above the reflection.
+    Box(modifier = Modifier.fillMaxSize()) {
         // Reflection - same technique as portrait's (see its comments for
         // why requiredHeight/BoxWithConstraints/aspectRatio alone all failed
         // here): a full, un-squashed copy of the artwork sized to its own
@@ -392,7 +394,12 @@ private fun LandscapePlayerLayout(
             }
         }
 
-        Row(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
             AsyncImage(
                 model = coverUrl,
                 fallback = painterResource(R.drawable.album_art_placeholder),
