@@ -1,5 +1,6 @@
 package com.terraeclectic.deathfm.ui
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -77,6 +78,7 @@ import kotlin.math.roundToInt
  * deliberately quiet icon in the top-right corner in both, rather than
  * competing with the transport control for visual weight.
  */
+@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun PlayerScreen(
     station: Station,

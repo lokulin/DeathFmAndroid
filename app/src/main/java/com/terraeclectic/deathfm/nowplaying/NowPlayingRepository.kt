@@ -153,11 +153,21 @@ class NowPlayingRepository(
         // end-of-track-timed polling in nextPollDelayMs.
         private const val POLL_INTERVAL_MS = 30_000L
 
-        // Grace period after a track's expected end before polling again -
-        // the station's own database update can lag slightly behind the
-        // actual audio transition, so polling at the exact calculated
-        // instant risked still getting the outgoing track back.
-        private const val END_OF_TRACK_BUFFER_MS = 2_000L
+        // Grace period after a track's expected end before polling again.
+        // This isn't just "the station's database lags a beat" - our
+        // elapsed-time math is anchored to the station's own broadcast
+        // clock (see NowPlayingMetadata's doc), but the audio actually
+        // reaching the listener is delayed by however much ExoPlayer has
+        // buffered ahead, which varies with network conditions (cellular,
+        // Bluetooth to a car head unit, etc.) and can easily be several
+        // seconds. Too short a buffer here means the new track's artwork
+        // shows up before the previous track has actually finished
+        // playing audibly - confirmed happening in real testing over
+        // Android Auto. There's no way to know the exact buffer depth, so
+        // this is a tuning knob, not a precise fix - biased toward "a bit
+        // late" rather than "too early," since a late update is far less
+        // jarring than art changing mid-song.
+        private const val END_OF_TRACK_BUFFER_MS = 8_000L
 
         // Floor on the computed delay, so a track reported with an already-
         // elapsed or bogus (e.g. zero/negative remaining) length can't turn

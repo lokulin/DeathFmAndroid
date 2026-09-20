@@ -168,6 +168,16 @@ class PlaybackService : MediaLibraryService() {
         MediaItem.Builder()
             .setMediaId(station.id)
             .setUri(station.streamUrl)
+            // Without this, nothing tells Media3/Android Auto this is live,
+            // unbounded content - a plain progressive HTTP stream like ours
+            // doesn't get auto-detected as "live" the way an HLS/DASH live
+            // manifest would. Auto's Now Playing widget only reads the
+            // official Player/MediaMetadata surface (not our own custom
+            // extras, which only our app's Compose UI knows to read), so
+            // without this it tried to render a normal elapsed/duration
+            // timer for something with no real duration - landing on a
+            // stuck "0:00" total instead of showing it as a live stream.
+            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().build())
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(station.displayName)
