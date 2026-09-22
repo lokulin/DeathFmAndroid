@@ -222,7 +222,18 @@ class MainActivity : FragmentActivity() {
                             onPlayPause = {
                                 controller?.let { c ->
                                     Log.d(TAG, "onPlayPause tapped, c.isPlaying=${c.isPlaying}")
-                                    if (c.isPlaying) c.stop() else c.play()
+                                    // pause(), not stop(): CastPlayer.stop() (Media3 1.4.1)
+                                    // mutates its internal playbackState directly without
+                                    // notifying listeners synchronously (unlike
+                                    // setPlayWhenReady(), which play()/pause() both use) and
+                                    // unloads the receiver's media session, which
+                                    // CastPlayer.prepare() (a no-op) can't reload - confirmed
+                                    // by reading Media3's own source. That combination is what
+                                    // caused the button and the TV to need repeated taps to
+                                    // resync: the icon stayed stale until an async Cast status
+                                    // round-trip arrived, and a follow-up play() had nothing
+                                    // loaded on the receiver to resume.
+                                    if (c.isPlaying) c.pause() else c.play()
                                 }
                             },
                             onOpenSettings = { screen = AppScreen.SETTINGS },
