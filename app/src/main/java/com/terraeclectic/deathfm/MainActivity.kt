@@ -1,9 +1,13 @@
 package com.terraeclectic.deathfm
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -40,14 +44,33 @@ private enum class AppScreen { PLAYER, SETTINGS, QUEUE_PLAYED }
  * screens (player / settings / queue+played) flipped between with plain
  * local state - this is a skeleton, not attempting a nav-graph for three
  * screens.
+ *
+ * FragmentActivity rather than plain ComponentActivity - PlayerScreen's Cast
+ * button (MediaRouteButton) shows its device picker as a DialogFragment and
+ * throws ("must be a subclass of FragmentActivity") without this, confirmed
+ * by an actual crash on a real device tap.
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private var controller: MediaController? = null
     private val queuePlayedRepository = QueuePlayedRepository(Stations.DEATH_FM)
 
+    // No hook to intercept the Cast icon's own click (CastButtonFactory wires
+    // it straight to opening the device picker), so this is requested
+    // up front on launch instead of lazily on tap - confirmed live that
+    // without NEARBY_WIFI_DEVICES granted, the picker opens fine but silently
+    // finds nothing, indistinguishable from "no Chromecast on the network"
+    // unless you go looking for it in adb's appops dump.
+    private val requestNearbyWifiDevices = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNearbyWifiDevices.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
 
         setContent {
             DeathFmTheme {

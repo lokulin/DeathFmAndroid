@@ -12,8 +12,8 @@ android {
         applicationId = "com.terraeclectic.deathfm"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.4.0"
     }
 
     buildTypes {
@@ -57,6 +57,23 @@ dependencies {
     // by - see playback/PlaybackService.kt.
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-session:1.4.1")
+
+    // Chromecast: media3-cast's CastPlayer becomes the MediaSession's active
+    // player for as long as a cast session is connected (PlaybackService),
+    // and the classic MediaRouteButton (via mediarouter + CastButtonFactory)
+    // gives the phone/tablet UI its "Cast to" icon (PlayerScreen). Not
+    // surfaced to Android Auto - the head unit isn't what's doing the casting.
+    implementation("androidx.media3:media3-cast:1.4.1")
+    // Explicit, current versions rather than whatever media3-cast/mediarouter
+    // pull in transitively - confirmed live that an older framework/mediarouter
+    // pairing (21.5.0/1.7.0) produced a real, intermittent bug: GMS's own
+    // CastMediaRouteProvider logged "Published 1 routes" for a real Chromecast
+    // on the network, but our app's own MediaRouter randomly logged "Ignoring
+    // invalid provider descriptor: null" for the same event instead of
+    // surfacing the route, so the picker sometimes searched forever and found
+    // nothing despite a route genuinely being published moments earlier.
+    implementation("com.google.android.gms:play-services-cast-framework:22.3.1")
+    implementation("androidx.mediarouter:mediarouter:1.8.1")
 
     // For NowPlayingRepository's polling of death.fm's now-playing endpoint,
     // and LastFmClient's calls to the Audioscrobbler API.

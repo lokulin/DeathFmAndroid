@@ -1,8 +1,19 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Compose draws all the actual UI; this just needs to exist so the
          manifest/activity have a non-Compose theme to launch with (splash
-         background, status bar color) before the first frame is composed. -->
-    <style name="Theme.DeathFm" parent="android:Theme.Material.NoActionBar">
+         background, status bar color) before the first frame is composed.
+
+         Parent is Theme.AppCompat, not a bare platform theme, because of the
+         Cast button: MediaRouteButton AND the MediaRouteChooserDialog it
+         opens both read AppCompat theme attributes (colorControlNormal etc.)
+         directly off the *Activity's real theme* - not off whatever context
+         is passed to the button itself - and throw if they're missing
+         (confirmed live: wrapping just the button in a themed
+         ContextThemeWrapper fixed the button but the dialog it opened still
+         crashed the same way, since DialogFragments re-resolve their theme
+         from the hosting Activity). AppCompat itself comes in transitively
+         via the mediarouter dependency. -->
+    <style name="Theme.DeathFm" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@color/death_fm_black</item>
         <item name="android:statusBarColor" tools:targetApi="21">@color/death_fm_black</item>
         <item name="android:navigationBarColor" tools:targetApi="21">@color/death_fm_black</item>

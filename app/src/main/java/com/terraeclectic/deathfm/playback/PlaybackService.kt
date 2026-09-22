@@ -1,6 +1,8 @@
 package com.terraeclectic.deathfm.playback
 
 import android.util.Log
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -13,6 +15,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.ControllerInfo
 import androidx.media3.common.util.UnstableApi
+import com.google.android.gms.cast.framework.CastContext
 import com.terraeclectic.deathfm.DeathFmApp
 import com.terraeclectic.deathfm.lastfm.LastFmScrobbler
 import com.terraeclectic.deathfm.nowplaying.NowPlayingMetadata
@@ -42,7 +45,15 @@ class PlaybackService : MediaLibraryService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private lateinit var player: ExoPlayer
+    private lateinit var localPlayer: ExoPlayer
+    private var castPlayer: CastPlayer? = null
+
+    // Whichever of localPlayer/castPlayer is currently attached to
+    // mediaSession - tracked separately rather than read back off
+    // mediaSession.player so switchToPlayer has the *previous* player in
+    // hand (to stop it) before it hands the session the new one.
+    private lateinit var currentPlayer: Player
+
     private lateinit var mediaSession: MediaLibrarySession
     private lateinit var nowPlayingRepository: NowPlayingRepository
     private lateinit var scrobbler: LastFmScrobbler
@@ -52,7 +63,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
 
-        player = ExoPlayer.Builder(this)
+        localPlayer = ExoPlayer.Builder(this)
             // Neither of these is on by default - without them ExoPlayer
             // never requests/responds to Android's audio focus system at
             // all, which is why switching to another media app (in Android
@@ -71,8 +82,9 @@ class PlaybackService : MediaLibraryService() {
             .apply {
                 addListener(playerListener)
             }
+        currentPlayer = localPlayer
 
-        mediaSession = MediaLibrarySession.Builder(this, player, librarySessionCallback)
+        mediaSession = MediaLibrarySession.Builder(this, currentPlayer, librarySessionCallback)
             .build()
 
         val app = application as DeathFmApp
@@ -84,6 +96,52 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch {
             nowPlayingRepository.nowPlaying.collect { metadata -> onNowPlayingChanged(metadata) }
         }
+
+        initializeCastPlayer()
+    }
+
+    // CastContext.getSharedInstance can fail on devices without a current-
+    // enough Play Services (rare, but not impossible on the sideloaded/Auto-
+    // adjacent hardware this app also targets) - casting just silently isn't
+    // offered rather than crashing the service on startup.
+    private fun initializeCastPlayer() {
+        try {
+            val castContext = CastContext.getSharedInstance(this)
+            castPlayer = CastPlayer(castContext).apply {
+                setSessionAvailabilityListener(castSessionListener)
+                addListener(playerListener)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cast unavailable", e)
+        }
+    }
+
+    private val castSessionListener = object : SessionAvailabilityListener {
+        override fun onCastSessionAvailable() {
+            switchToPlayer(castPlayer ?: return)
+        }
+
+        override fun onCastSessionUnavailable() {
+            switchToPlayer(localPlayer)
+        }
+    }
+
+    /** Hands the media session's currently-playing item off to [newPlayer], stopping whichever player was active before so they don't both end up outputting audio. */
+    private fun switchToPlayer(newPlayer: Player) {
+        if (currentPlayer === newPlayer) return
+
+        val mediaItem = currentPlayer.currentMediaItem
+        val playWhenReady = currentPlayer.playWhenReady
+        currentPlayer.stop()
+
+        currentPlayer = newPlayer
+        mediaSession.player = newPlayer
+
+        if (mediaItem != null) {
+            newPlayer.setMediaItem(mediaItem)
+            newPlayer.playWhenReady = playWhenReady
+            newPlayer.prepare()
+        }
     }
 
     override fun onGetSession(controllerInfo: ControllerInfo): MediaLibrarySession = mediaSession
@@ -92,7 +150,9 @@ class PlaybackService : MediaLibraryService() {
         nowPlayingRepository.stop()
         scrobbler.stop()
         mediaSession.release()
-        player.release()
+        castPlayer?.setSessionAvailabilityListener(null)
+        castPlayer?.release()
+        localPlayer.release()
         super.onDestroy()
     }
 
@@ -131,13 +191,30 @@ class PlaybackService : MediaLibraryService() {
         if (shouldPoll) nowPlayingRepository.start(serviceScope) else nowPlayingRepository.stop()
     }
 
-    /** Pushes fresh track/artist/artwork into the currently-playing MediaItem so lock-screen, notification, and Auto all pick it up - the stream itself never changes, only its metadata does. */
+    // Last trackKey (title|artist|spinId - not the timestamp fields) pushed
+    // to the CastPlayer. NowPlayingMetadata is a data class that includes
+    // elapsedAtFetchMs/fetchedAtDeviceMs, which change on every ~30s poll
+    // even when the track hasn't - so a plain equality/dedup check on the
+    // whole metadata object never suppresses anything. That's fine for the
+    // local player (replaceMediaItem there is cheap and keeps SMTC/Auto's
+    // elapsed-time readout in sync), but confirmed live that doing the same
+    // to a connected Chromecast visibly rebuffers the stream on every single
+    // poll, not just on a real track change - so the cast path only pushes
+    // a fresh item when the track identity actually changes.
+    private var lastCastTrackKey: String? = null
+
+    /** Pushes fresh track/artist/artwork into the currently-playing MediaItem so lock-screen, notification, Auto, and a connected Chromecast all pick it up - the stream itself never changes, only its metadata does. */
     private fun onNowPlayingChanged(metadata: NowPlayingMetadata) {
-        val current = player.currentMediaItem ?: return
+        if (currentPlayer === castPlayer) {
+            if (metadata.trackKey == lastCastTrackKey) return
+            lastCastTrackKey = metadata.trackKey
+        }
+
+        val current = currentPlayer.currentMediaItem ?: return
         val updated = current.buildUpon()
             .setMediaMetadata(buildMetadata(metadata))
             .build()
-        player.replaceMediaItem(player.currentMediaItemIndex, updated)
+        currentPlayer.replaceMediaItem(currentPlayer.currentMediaItemIndex, updated)
     }
 
     private fun buildMetadata(metadata: NowPlayingMetadata): MediaMetadata =
@@ -168,6 +245,16 @@ class PlaybackService : MediaLibraryService() {
         MediaItem.Builder()
             .setMediaId(station.id)
             .setUri(station.streamUrl)
+            // The stream serves "audio/aacp" (HE-AAC/AAC+, confirmed via its
+            // response headers) - ExoPlayer sniffs that fine on its own, but
+            // a Chromecast receiver needs an explicit, standard contentType
+            // to know how to play it; CastPlayer's DefaultMediaItemConverter
+            // forwards this mimeType straight through as that contentType.
+            // Deliberately the plain "audio/aac" string, not
+            // MimeTypes.AUDIO_AAC ("audio/mp4a-latm") - that constant is
+            // ExoPlayer's internal RFC6381 codec name, not the web MIME type
+            // a Cast receiver's contentType field expects.
+            .setMimeType(MIME_TYPE_CAST_AUDIO_AAC)
             // Without this, nothing tells Media3/Android Auto this is live,
             // unbounded content - a plain progressive HTTP stream like ours
             // doesn't get auto-detected as "live" the way an HLS/DASH live
@@ -264,6 +351,7 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private const val TAG = "PlaybackService"
         private const val ROOT_ID = "root"
+        private const val MIME_TYPE_CAST_AUDIO_AAC = "audio/aac"
         const val EXTRA_LENGTH_MS = "com.terraeclectic.deathfm.LENGTH_MS"
         const val EXTRA_ELAPSED_AT_FETCH_MS = "com.terraeclectic.deathfm.ELAPSED_AT_FETCH_MS"
         const val EXTRA_FETCHED_AT_DEVICE_MS = "com.terraeclectic.deathfm.FETCHED_AT_DEVICE_MS"

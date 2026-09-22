@@ -1,6 +1,7 @@
 package com.terraeclectic.deathfm.ui
 
 import android.annotation.SuppressLint
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,7 +59,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.mediarouter.app.MediaRouteButton
 import coil.compose.AsyncImage
+import com.google.android.gms.cast.framework.CastButtonFactory
 import com.terraeclectic.deathfm.R
 import com.terraeclectic.deathfm.playback.Station
 import com.terraeclectic.deathfm.playback.Stations
@@ -74,9 +78,10 @@ import kotlin.math.roundToInt
  * landscape looked odd stretched into the portrait layout) gets a side by
  * side split, artwork on the left and now-playing details on the right,
  * since there's usually not enough height in landscape for a full square
- * plus a stack of text and controls below it. Settings is a small,
- * deliberately quiet icon in the top-right corner in both, rather than
- * competing with the transport control for visual weight.
+ * plus a stack of text and controls below it. Settings (plus the Cast
+ * button next to it) is a small, deliberately quiet icon in the top-right
+ * corner in both, rather than competing with the transport control for
+ * visual weight.
  */
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
@@ -149,26 +154,57 @@ fun PlayerScreen(
                 )
             }
 
-            // Settings: a small, quiet icon rather than a same-sized button
-            // next to Play/Stop - a large touch target doesn't require an
-            // equally large visible control, and this one isn't the primary
-            // action on the screen. Shared between both orientations.
-            IconButton(
-                onClick = onOpenSettings,
+            // Cast + Settings: same quiet-icon treatment, grouped together in
+            // the top-right corner. Phone/tablet only, same as Queue/Played -
+            // Android Auto's head unit isn't what's doing the casting.
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
                     .padding(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = "Settings",
-                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    modifier = Modifier.size(24.dp),
-                )
+                CastButton()
+
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = "Settings",
+                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * A standard Cast icon wired up via CastButtonFactory - tapping it opens the
+ * system's own device-picker dialog and, once connected, shows the usual
+ * "connected" glyph; all of that behavior comes for free from the Cast SDK,
+ * not reimplemented here. AndroidView rather than a plain Compose Icon
+ * because there's no Compose-native equivalent of MediaRouteButton.
+ */
+@Composable
+private fun CastButton() {
+    AndroidView(
+        factory = { context ->
+            // See Theme.DeathFm's doc in themes.xml for why this app's theme
+            // is AppCompat-based - MediaRouteButton needs that regardless of
+            // what context it's constructed with.
+            MediaRouteButton(context).apply {
+                try {
+                    CastButtonFactory.setUpMediaRouteButton(context, this)
+                } catch (e: Exception) {
+                    // No Cast support on this device (e.g. no Play Services) -
+                    // leave the button inert rather than crash the screen.
+                    Log.w("PlayerScreen", "Cast button unavailable", e)
+                }
+                alpha = 0.6f
+            }
+        },
+    )
 }
 
 @Composable

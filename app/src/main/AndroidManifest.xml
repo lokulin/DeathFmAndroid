@@ -1,11 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Chromecast device discovery is mDNS-based - all three are required
+         for the Cast SDK to find receivers on the local network. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- On API 33+ this is the actual runtime gate: confirmed live that
+         without it, GMS's Cast route provider silently returns Wi-Fi-based
+         devices as if none existed (Pulsar, which does have it, found the
+         same TV instantly) rather than throwing or logging anything obvious
+         on our end - ACCESS_WIFI_STATE/CHANGE_WIFI_MULTICAST_STATE above
+         weren't enough by themselves. neverForLocation is correct here since
+         nothing in this app derives physical location from Wi-Fi scan
+         results, so ACCESS_FINE_LOCATION isn't also needed. -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="33" />
 
     <!-- Not phone-shaped hardware, but nothing here requires a phone either -
          lets this install on Android Auto-only / head-unit-adjacent devices. -->
@@ -25,6 +42,32 @@
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
+
+        <!-- Points the Cast SDK at CastOptionsProvider (receiver app ID etc.).
+             The key is OPTIONS_PROVIDER_CLASS_NAME - confirmed the hard way:
+             using OPTIONS_PROVIDER_CLASS (missing "_NAME") compiles and runs
+             with no visible error anywhere, but CastContext.getSharedInstance()
+             throws IllegalStateException internally on every single call,
+             silently swallowed by every try/catch around it in this codebase
+             (PlaybackService.initializeCastPlayer, PlayerScreen's CastButton).
+             The button and picker dialog still render fine regardless - they
+             just never see our real CastOptions, so the picker always finds
+             nothing even with a real Chromecast on the network and other
+             apps casting to it successfully at the same moment. -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.terraeclectic.deathfm.cast.CastOptionsProvider" />
+
+        <!-- Required for Android 13+'s "Output Switcher" - since that version,
+             Cast device discovery routes through the platform's MediaRouter2
+             architecture, and a classic MediaRouteButton can't properly
+             bridge to it without this being declared. Confirmed live as the
+             actual root cause of the Cast picker always finding nothing on a
+             real Pixel 7 despite a real Chromecast being present and other
+             apps finding it instantly: this receiver was simply missing. -->
+        <receiver
+            android:name="androidx.mediarouter.media.MediaTransferReceiver"
+            android:exported="true" />
 
         <activity
             android:name=".MainActivity"
