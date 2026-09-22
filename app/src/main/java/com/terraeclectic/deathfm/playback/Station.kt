@@ -11,6 +11,7 @@ data class Station(
     val displayName: String,
     val streamUrl: String,
     val nowPlayingUrl: String,
+    val logoUrl: String,
 )
 
 object Stations {
@@ -19,6 +20,13 @@ object Stations {
         displayName = "Death.FM",
         streamUrl = "https://death.fm/live",
         nowPlayingUrl = "https://death.fm/soap/FM24sevenJSON.php?action=GetCurrentlyPlaying",
+        // NOT death.fm's own logo URL - confirmed dead (404) on their end,
+        // even in their own player page's onerror fallback, so not
+        // something that broke on our side. Using our own already-hosted
+        // copy of the same skull/headphones logo instead (same asset the
+        // Cast skin at deathfm-cast.pages.dev uses), since we don't control
+        // death.fm's server to get theirs fixed.
+        logoUrl = "https://deathfm-cast.pages.dev/logo.png",
     )
 
     val all = listOf(DEATH_FM)

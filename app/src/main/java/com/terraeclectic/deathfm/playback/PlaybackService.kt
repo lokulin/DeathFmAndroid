@@ -126,11 +126,28 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    /** Hands the media session's currently-playing item off to [newPlayer], stopping whichever player was active before so they don't both end up outputting audio. */
+    /**
+     * Hands the media session's currently-playing item off to [newPlayer],
+     * stopping whichever player was active before so they don't both end up
+     * outputting audio.
+     *
+     * Deliberately does NOT carry over the local player's real track
+     * metadata when handing off to the CastPlayer - onNowPlayingChanged no
+     * longer pushes updates to it afterwards (see its doc), so whatever
+     * metadata this item started with is what the TV shows for the entire
+     * cast session. Using the generic station branding here rather than
+     * "whatever happened to be playing at the moment you tapped Cast" avoids
+     * showing one real track/artist frozen in place, stale, for however long
+     * the session runs.
+     */
     private fun switchToPlayer(newPlayer: Player) {
         if (currentPlayer === newPlayer) return
 
-        val mediaItem = currentPlayer.currentMediaItem
+        val mediaItem = if (newPlayer === castPlayer) {
+            castBrandingMediaItem(Stations.DEATH_FM)
+        } else {
+            currentPlayer.currentMediaItem
+        }
         val playWhenReady = currentPlayer.playWhenReady
         currentPlayer.stop()
 
@@ -170,6 +187,22 @@ class PlaybackService : MediaLibraryService() {
             if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
                 updateNowPlayingPolling(player)
             }
+            // TEMP debug logging - Android Auto's Now Playing widget still
+            // shows a stuck "0:00" total/time-since-started instead of a
+            // live-stream display on a real head unit, despite
+            // stationMediaItem's setLiveConfiguration call (which, per
+            // ProgressiveMediaSource's own source, only tunes real live
+            // formats like HLS/DASH and does nothing for a plain progressive
+            // HTTP stream like ours). Logging the real Player-reported values
+            // Auto's legacy MediaSession bridge actually reads, next time
+            // this is tested in the car, rather than guessing at another fix.
+            if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+                Log.d(
+                    TAG,
+                    "DEBUG duration=${player.duration} isLive=${player.isCurrentMediaItemLive} " +
+                        "isSeekable=${player.isCurrentMediaItemSeekable} contentDuration=${player.contentDuration}",
+                )
+            }
         }
     }
 
@@ -191,24 +224,26 @@ class PlaybackService : MediaLibraryService() {
         if (shouldPoll) nowPlayingRepository.start(serviceScope) else nowPlayingRepository.stop()
     }
 
-    // Last trackKey (title|artist|spinId - not the timestamp fields) pushed
-    // to the CastPlayer. NowPlayingMetadata is a data class that includes
-    // elapsedAtFetchMs/fetchedAtDeviceMs, which change on every ~30s poll
-    // even when the track hasn't - so a plain equality/dedup check on the
-    // whole metadata object never suppresses anything. That's fine for the
-    // local player (replaceMediaItem there is cheap and keeps SMTC/Auto's
-    // elapsed-time readout in sync), but confirmed live that doing the same
-    // to a connected Chromecast visibly rebuffers the stream on every single
-    // poll, not just on a real track change - so the cast path only pushes
-    // a fresh item when the track identity actually changes.
-    private var lastCastTrackKey: String? = null
-
-    /** Pushes fresh track/artist/artwork into the currently-playing MediaItem so lock-screen, notification, Auto, and a connected Chromecast all pick it up - the stream itself never changes, only its metadata does. */
+    /**
+     * Pushes fresh track/artist/artwork into the currently-playing MediaItem
+     * so lock-screen, notification, and Auto all pick it up - the stream
+     * itself never changes, only its metadata does.
+     *
+     * Deliberately a no-op while casting, by design, not merely throttled:
+     * confirmed live that CastPlayer.replaceMediaItem()/replaceMediaItems()
+     * is implemented as addMediaItems() + removeMediaItems() - a real queue
+     * insert-then-remove, not a metadata patch - so pushing updates to it
+     * visibly pauses/reloads the stream on every track change even though
+     * the underlying URL never changes. RemoteMediaClient.queueUpdateItems()
+     * (the real "patch metadata in place" Cast API, which CastPlayer doesn't
+     * expose) could avoid that, but the actual point of casting here is to
+     * hand off completely: the phone should be safe to close once a cast
+     * session starts, not stay alive polling death.fm just to keep a title
+     * on the TV in sync. The TV keeps whatever metadata was current at
+     * hand-off (set once in switchToPlayer) for the rest of the session.
+     */
     private fun onNowPlayingChanged(metadata: NowPlayingMetadata) {
-        if (currentPlayer === castPlayer) {
-            if (metadata.trackKey == lastCastTrackKey) return
-            lastCastTrackKey = metadata.trackKey
-        }
+        if (currentPlayer === castPlayer) return
 
         val current = currentPlayer.currentMediaItem ?: return
         val updated = current.buildUpon()
@@ -225,14 +260,17 @@ class PlaybackService : MediaLibraryService() {
             .setArtworkUri(metadata.coverUrl?.let { android.net.Uri.parse(it) })
             .setIsPlayable(true)
             .setIsBrowsable(false)
-            // MediaMetadata has no built-in "track length" field (duration
-            // normally comes from the player/Timeline, meaningless for a live
-            // stream) - stashed in extras so the UI can render a playtime
-            // readout from the same real data the scrobbler uses. See
-            // NowPlayingMetadata's doc for why this is elapsedAtFetchMs +
-            // fetchedAtDeviceMs rather than a raw "start time" - the
-            // station's own clock turned out not to be trustworthy as an
-            // absolute timestamp.
+            // See stationMediaItem's doc on MEDIA_TYPE_RADIO_STATION for why
+            // this is set on every metadata update, not just the initial
+            // item - Android Auto still showed a stuck "0:00" total without
+            // it, confirmed live on a real head unit despite the player's own
+            // duration correctly reporting unset/unknown.
+            .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
+            // MediaMetadata.durationMs exists but is deliberately left unset
+            // here too - death.fm's own "Length" is catalog metadata a live
+            // spin can run past (see PlaybackProgress's doc), not a real
+            // fixed duration to advertise to the system. The real numbers for
+            // our own progress bar go in extras below instead.
             .setExtras(android.os.Bundle().apply {
                 putLong(EXTRA_LENGTH_MS, metadata.lengthMs)
                 putLong(EXTRA_ELAPSED_AT_FETCH_MS, metadata.elapsedAtFetchMs)
@@ -255,24 +293,48 @@ class PlaybackService : MediaLibraryService() {
             // ExoPlayer's internal RFC6381 codec name, not the web MIME type
             // a Cast receiver's contentType field expects.
             .setMimeType(MIME_TYPE_CAST_AUDIO_AAC)
-            // Without this, nothing tells Media3/Android Auto this is live,
-            // unbounded content - a plain progressive HTTP stream like ours
-            // doesn't get auto-detected as "live" the way an HLS/DASH live
-            // manifest would. Auto's Now Playing widget only reads the
-            // official Player/MediaMetadata surface (not our own custom
-            // extras, which only our app's Compose UI knows to read), so
-            // without this it tried to render a normal elapsed/duration
-            // timer for something with no real duration - landing on a
-            // stuck "0:00" total instead of showing it as a live stream.
+            // NOT a fix for Auto's stuck "0:00" duration display, despite
+            // looking like one - confirmed by reading ProgressiveMediaSource's
+            // own source: LiveConfiguration only tunes real live formats
+            // (HLS/DASH manifests that already declare themselves live) and
+            // is silently ignored for a plain progressive HTTP stream like
+            // this one. Left in place since it's harmless and correctly
+            // documents intent, but see MEDIA_TYPE_RADIO_STATION below (and
+            // in buildMetadata) for the setting that actually addresses it -
+            // Auto's legacy MediaSession bridge needs an explicit hint that
+            // this is a radio station, not just an unset player duration
+            // (which the player already reported correctly on its own).
             .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().build())
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(station.displayName)
                     .setIsPlayable(true)
                     .setIsBrowsable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
                     .build()
             )
             .build()
+
+    /**
+     * The item handed to the CastPlayer on connect - see switchToPlayer's
+     * doc for why this is deliberately generic branding, not whatever's
+     * really playing. Kept separate from stationMediaItem's own baseline
+     * metadata rather than folded into it - that one is also what the app
+     * loads locally on a cold start, and showing a literal "Now Playing"
+     * artist line on the phone's own now-playing screen before the first
+     * real poll lands would be a bug there, not a feature.
+     */
+    private fun castBrandingMediaItem(station: Station): MediaItem {
+        val base = stationMediaItem(station)
+        return base.buildUpon()
+            .setMediaMetadata(
+                base.mediaMetadata.buildUpon()
+                    .setArtist("Now Playing")
+                    .setArtworkUri(android.net.Uri.parse(station.logoUrl))
+                    .build()
+            )
+            .build()
+    }
 
     private fun browsableFolder(id: String, title: String): MediaItem =
         MediaItem.Builder()
