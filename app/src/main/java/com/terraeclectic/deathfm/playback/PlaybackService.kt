@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /**
  * Owns the ExoPlayer + MediaSession pair that everything else hangs off:
@@ -119,10 +120,54 @@ class PlaybackService : MediaLibraryService() {
     private val castSessionListener = object : SessionAvailabilityListener {
         override fun onCastSessionAvailable() {
             switchToPlayer(castPlayer ?: return)
+            sendLastFmCredentialsToReceiver()
         }
 
         override fun onCastSessionUnavailable() {
             switchToPlayer(localPlayer)
+        }
+    }
+
+    /**
+     * Hands the receiver everything it needs to run Last.fm scrobbling
+     * itself, independently, for the rest of the cast session - see
+     * LASTFM_SCROBBLING_PLAN.md (DeathFmCastReceiver repo) for the full
+     * reasoning. The receiver already polls death.fm's own API and tracks
+     * elapsed time correctly on its own; this is a one-time handoff, not an
+     * ongoing relay - once sent, the phone's own scrobbling is suppressed
+     * (see playerListener.onIsPlayingChanged) so the same play never gets
+     * scrobbled twice.
+     *
+     * No-op if the user isn't connected to Last.fm - the receiver simply
+     * never gets credentials and never attempts to scrobble, no explicit
+     * "disabled" signal needed.
+     */
+    private fun sendLastFmCredentialsToReceiver() {
+        val settings = (application as DeathFmApp).settings
+        if (!settings.isLastFmConnected) return
+
+        val message = JSONObject().apply {
+            put("apiKey", settings.lastFmApiKey)
+            put("apiSecret", settings.lastFmApiSecret)
+            put("sessionKey", settings.lastFmSessionKey)
+        }.toString()
+
+        // sendMessage silently no-ops (an already-resolved failed
+        // PendingResult, confirmed against the SDK's own bytecode) rather
+        // than throwing if there's no connected session - still guard with
+        // a null check since currentCastSession is a plain nullable getter,
+        // not something the type system enforces non-null here.
+        val session = CastContext.getSharedInstance(this).sessionManager.currentCastSession
+        if (session == null) {
+            Log.w(TAG, "sendLastFmCredentialsToReceiver: no current CastSession")
+            return
+        }
+        session.sendMessage(LASTFM_NAMESPACE, message).setResultCallback { status ->
+            if (status.isSuccess) {
+                Log.d(TAG, "Sent Last.fm credentials to receiver")
+            } else {
+                Log.w(TAG, "Failed to send Last.fm credentials to receiver: ${status.statusCode}")
+            }
         }
     }
 
@@ -180,7 +225,15 @@ class PlaybackService : MediaLibraryService() {
             // tied to genuine audible playback (not the more tolerant
             // updateNowPlayingPolling below), matching Last.fm's own
             // semantics of "are they actually listening right now."
-            scrobbler.setPlaying(isPlaying)
+            //
+            // Forced false while casting, regardless of the CastPlayer's own
+            // isPlaying - the receiver now runs its own independent
+            // scrobbling client (see sendLastFmCredentialsToReceiver), and
+            // letting the phone's scrobbler keep running too would double-
+            // scrobble the same play. Local playback resumes normal
+            // isPlaying-driven behaviour the moment currentPlayer switches
+            // back off the CastPlayer.
+            scrobbler.setPlaying(if (currentPlayer === castPlayer) false else isPlaying)
         }
 
         override fun onEvents(player: Player, events: Player.Events) {
@@ -414,6 +467,11 @@ class PlaybackService : MediaLibraryService() {
         private const val TAG = "PlaybackService"
         private const val ROOT_ID = "root"
         private const val MIME_TYPE_CAST_AUDIO_AAC = "audio/aac"
+        // Must match the receiver's listener namespace exactly
+        // (DeathFmCastReceiver's index.html) - no Cast Console registration
+        // needed for a custom namespace, just this string convention on
+        // both ends (must start with "urn:x-cast:").
+        private const val LASTFM_NAMESPACE = "urn:x-cast:com.terraeclectic.deathfm.lastfm"
         const val EXTRA_LENGTH_MS = "com.terraeclectic.deathfm.LENGTH_MS"
         const val EXTRA_ELAPSED_AT_FETCH_MS = "com.terraeclectic.deathfm.ELAPSED_AT_FETCH_MS"
         const val EXTRA_FETCHED_AT_DEVICE_MS = "com.terraeclectic.deathfm.FETCHED_AT_DEVICE_MS"
