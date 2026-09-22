@@ -11,7 +11,8 @@ media controls and Android Auto support essentially for free via Media3.
 | File | Purpose |
 |---|---|
 | `MainActivity.kt` | Compose UI host; connects a `MediaController` to `PlaybackService` and flips between the player and settings screens. |
-| `playback/PlaybackService.kt` | `MediaLibraryService` owning the `ExoPlayer` + `MediaSession` pair - drives lock-screen/notification controls, the app's own UI, and Android Auto's browse+playback UI, all from one session. Handles audio focus and "becoming noisy" (Bluetooth/headphone disconnect) pauses, and implements playback resumption so Android Auto launches straight into the player instead of a one-item browse list. |
+| `playback/PlaybackService.kt` | `MediaLibraryService` owning the `ExoPlayer`/`CastPlayer`/`MediaSession` trio - drives lock-screen/notification controls, the app's own UI, Android Auto's browse+playback UI, and Chromecast, all from one session. Handles audio focus and "becoming noisy" (Bluetooth/headphone disconnect) pauses, implements playback resumption so Android Auto launches straight into the player instead of a one-item browse list, and hands the [DeathFmCastReceiver](https://github.com/lokulin/DeathFmCastReceiver) custom receiver a Last.fm session over Cast's custom message channel so scrobbling keeps working even if this app is closed after casting starts. |
+| `cast/CastOptionsProvider.kt` | Points the Cast SDK at the custom receiver app (`DeathFmCastReceiver`) instead of the default shared receiver. |
 | `playback/Station.kt` | Station metadata (stream URL, now-playing endpoint). Currently just `Death.FM` - a list of one on purpose, so adding the other four death.fm network stations later is a data change, not a rework. |
 | `nowplaying/NowPlayingRepository.kt` | Polls death.fm's now-playing JSON endpoint and exposes it as a `StateFlow`. Timed to poll again right after the current track is expected to end (using the real `Length`/elapsed data), rather than a flat 30s cadence, which falls back to as the ceiling. |
 | `nowplaying/NowPlayingMetadata.kt` | Parsed now-playing snapshot (track/artist/album/real length/start time/cover art). |
@@ -26,11 +27,12 @@ media controls and Android Auto support essentially for free via Media3.
 
 ## Status
 
-Tagged `v0.1.0` (2026-09-19). Core playback, now-playing metadata, the
-player UI, Last.fm scrobbling, and Android Auto have all been tested end to
-end on real hardware (a Pixel 7, a Lenovo tablet for the landscape layout,
-and an actual car head unit for Android Auto) - not just reasoned about.
-Still a skeleton in scope, though - not a finished app:
+Tagged `v0.4.2` (2026-09-23). Core playback, now-playing metadata, the
+player UI, Last.fm scrobbling, Android Auto, and Chromecast have all been
+tested end to end on real hardware (a Pixel 7, a Lenovo tablet for the
+landscape layout, an actual car head unit for Android Auto, and a real
+Chromecast) - not just reasoned about. Still a skeleton in scope, though -
+not a finished app:
 
 - Only the `dfm` station is wired up; the other four (`1980s.fm`, `adagio.fm`,
   `entranced.fm`, `streamingsoundtracks.com`) share the same API shape and
@@ -44,7 +46,20 @@ Still a skeleton in scope, though - not a finished app:
 - Last.fm's Connect flow is fully wired (real two-step auth: opens the
   browser, then waits for the user to explicitly confirm they approved it
   before calling `auth.getSession` - see `LastFmConnectionState`) and has
-  been tested against a real Last.fm account.
+  been tested against a real Last.fm account. While casting, this app's own
+  `LastFmScrobbler` is suppressed and the Cast receiver scrobbles instead
+  (see [DeathFmCastReceiver](https://github.com/lokulin/DeathFmCastReceiver)'s
+  `LASTFM_SCROBBLING_PLAN.md`) - confirmed end to end (a real
+  `track.updateNowPlaying` + `track.scrobble` landing on Last.fm) with this
+  app fully closed part-way through.
+- Chromecast support: casts to a custom receiver
+  ([DeathFmCastReceiver](https://github.com/lokulin/DeathFmCastReceiver),
+  deployed at `deathfm-cast.l6n.uk`) rather than the default shared
+  receiver, for a real elapsed-time display and Death.FM branding instead
+  of a stuck "0:00" and "Default Media Receiver". Hands off completely on
+  purpose - the phone is safe to close once a cast session starts, since
+  the receiver independently polls death.fm's own now-playing API rather
+  than depending on this app staying alive.
 - No watchdog yet for the "stream gets stuck buffering forever" issue the
   desktop app's `NowPlayingService.cs` works around - ExoPlayer's own
   retry/backoff handles ordinary transient errors, but not necessarily a
@@ -136,3 +151,10 @@ Same setup as the desktop app - register a free API application at
 name, blank callback URL) for an API key and shared secret, then paste them
 into the in-app Settings screen and tap Connect. Each person needs their own
 key rather than one baked into the source, since this repo is public.
+
+While casting, `PlaybackService` hands that same API key/secret/session key
+to the Cast receiver once (over a custom message channel, in memory on the
+receiver only, never persisted) and suppresses this app's own scrobbler for
+the rest of the session - see
+[DeathFmCastReceiver](https://github.com/lokulin/DeathFmCastReceiver)'s
+`LASTFM_SCROBBLING_PLAN.md` for the full design and reasoning.
