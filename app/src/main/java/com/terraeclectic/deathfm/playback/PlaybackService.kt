@@ -240,22 +240,6 @@ class PlaybackService : MediaLibraryService() {
             if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
                 updateNowPlayingPolling(player)
             }
-            // TEMP debug logging - Android Auto's Now Playing widget still
-            // shows a stuck "0:00" total/time-since-started instead of a
-            // live-stream display on a real head unit, despite
-            // stationMediaItem's setLiveConfiguration call (which, per
-            // ProgressiveMediaSource's own source, only tunes real live
-            // formats like HLS/DASH and does nothing for a plain progressive
-            // HTTP stream like ours). Logging the real Player-reported values
-            // Auto's legacy MediaSession bridge actually reads, next time
-            // this is tested in the car, rather than guessing at another fix.
-            if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION)) {
-                Log.d(
-                    TAG,
-                    "DEBUG duration=${player.duration} isLive=${player.isCurrentMediaItemLive} " +
-                        "isSeekable=${player.isCurrentMediaItemSeekable} contentDuration=${player.contentDuration}",
-                )
-            }
         }
     }
 
@@ -310,14 +294,18 @@ class PlaybackService : MediaLibraryService() {
             .setTitle(metadata.track)
             .setArtist(metadata.artist)
             .setAlbumTitle(metadata.album)
+            // Android Auto's Now Playing template reads these display fields
+            // for its title/subtitle text, not the raw title/artist above -
+            // confirmed by checking VLC-Android's real PlaybackService, which
+            // sets METADATA_KEY_DISPLAY_TITLE/DISPLAY_SUBTITLE explicitly in
+            // car mode rather than relying on Auto to synthesize them itself.
+            .setDisplayTitle(metadata.track)
+            .setSubtitle(metadata.artist)
             .setArtworkUri(metadata.coverUrl?.let { android.net.Uri.parse(it) })
             .setIsPlayable(true)
             .setIsBrowsable(false)
-            // See stationMediaItem's doc on MEDIA_TYPE_RADIO_STATION for why
-            // this is set on every metadata update, not just the initial
-            // item - Android Auto still showed a stuck "0:00" total without
-            // it, confirmed live on a real head unit despite the player's own
-            // duration correctly reporting unset/unknown.
+            // Set on every metadata update, not just the initial item - see
+            // stationMediaItem's doc on MEDIA_TYPE_RADIO_STATION.
             .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
             // MediaMetadata.durationMs exists but is deliberately left unset
             // here too - death.fm's own "Length" is catalog metadata a live
@@ -346,17 +334,11 @@ class PlaybackService : MediaLibraryService() {
             // ExoPlayer's internal RFC6381 codec name, not the web MIME type
             // a Cast receiver's contentType field expects.
             .setMimeType(MIME_TYPE_CAST_AUDIO_AAC)
-            // NOT a fix for Auto's stuck "0:00" duration display, despite
-            // looking like one - confirmed by reading ProgressiveMediaSource's
-            // own source: LiveConfiguration only tunes real live formats
-            // (HLS/DASH manifests that already declare themselves live) and
-            // is silently ignored for a plain progressive HTTP stream like
-            // this one. Left in place since it's harmless and correctly
-            // documents intent, but see MEDIA_TYPE_RADIO_STATION below (and
-            // in buildMetadata) for the setting that actually addresses it -
-            // Auto's legacy MediaSession bridge needs an explicit hint that
-            // this is a radio station, not just an unset player duration
-            // (which the player already reported correctly on its own).
+            // Doesn't actually change Auto's display, since LiveConfiguration
+            // only tunes real live formats (HLS/DASH manifests that already
+            // declare themselves live) and is silently ignored for a plain
+            // progressive HTTP stream like this one. Left in place since it's
+            // harmless and correctly documents intent.
             .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().build())
             .setMediaMetadata(
                 MediaMetadata.Builder()
