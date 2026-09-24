@@ -34,6 +34,7 @@ class NowPlayingRepository(
     val nowPlaying: StateFlow<NowPlayingMetadata> = _nowPlaying.asStateFlow()
 
     private var pollJob: Job? = null
+    private var consecutiveFailures = 0
 
     // "2026-09-19T02:12:32" - naive-looking timestamp format used by both
     // "PlayStart" and "SystemTime". Despite the field name, this is NOT
@@ -67,22 +68,31 @@ class NowPlayingRepository(
     // thread with NetworkOnMainThreadException - withContext(IO) is required
     // here, not optional.
     private suspend fun pollOnce(): NowPlayingMetadata? {
-        return try {
+        val metadata = try {
             withContext(Dispatchers.IO) {
                 val url = "${station.nowPlayingUrl}&_t=${System.currentTimeMillis()}"
                 val request = Request.Builder().url(url).build()
                 httpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@withContext null
                     val body = response.body?.string() ?: return@withContext null
-                    val metadata = parse(body)
-                    _nowPlaying.value = metadata
-                    metadata
+                    parse(body)
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Now-playing poll failed", e)
             null
         }
+
+        if (metadata != null) {
+            _nowPlaying.value = metadata
+            if (consecutiveFailures > 0) {
+                Log.i(TAG, "Now-playing poll recovered after $consecutiveFailures failure(s)")
+            }
+            consecutiveFailures = 0
+        } else {
+            consecutiveFailures++
+        }
+        return metadata
     }
 
     // Rather than always waiting the full POLL_INTERVAL_MS, times the next
@@ -96,9 +106,22 @@ class NowPlayingRepository(
     // MIN_POLL_DELAY_MS so a just-started or bogus-length track can't cause
     // a tight poll loop.
     private fun nextPollDelayMs(metadata: NowPlayingMetadata?): Long {
-        if (metadata == null || metadata.lengthMs <= 0L) return POLL_INTERVAL_MS
+        if (metadata == null) return backoffDelayMs()
+        if (metadata.lengthMs <= 0L) return POLL_INTERVAL_MS
         val remainingMs = metadata.lengthMs - metadata.elapsedAtFetchMs
         return (remainingMs + END_OF_TRACK_BUFFER_MS).coerceIn(MIN_POLL_DELAY_MS, POLL_INTERVAL_MS)
+    }
+
+    // The site outage that prompted this (death.fm's DB down but the stream
+    // itself still up) showed this poll retrying at the normal 30s cadence
+    // forever with no backoff - harmless to death.fm's server at that rate,
+    // but there's no reason to keep hammering a known-down endpoint that
+    // hard. Doubles the wait per consecutive failure, capped at
+    // MAX_POLL_DELAY_MS, and resets to the normal cadence the moment a poll
+    // succeeds again (see pollOnce()).
+    private fun backoffDelayMs(): Long {
+        val shift = (consecutiveFailures - 1).coerceIn(0, MAX_BACKOFF_SHIFT)
+        return (POLL_INTERVAL_MS shl shift).coerceAtMost(MAX_POLL_DELAY_MS)
     }
 
     private fun parse(json: String): NowPlayingMetadata {
@@ -173,5 +196,11 @@ class NowPlayingRepository(
         // elapsed or bogus (e.g. zero/negative remaining) length can't turn
         // into a tight poll loop.
         private const val MIN_POLL_DELAY_MS = 3_000L
+
+        // Ceiling for the failure backoff below - 30s * 2^4 = 8 minutes.
+        // Long enough to stop hammering a genuinely-down endpoint, short
+        // enough that a fixed site outage is noticed again reasonably fast.
+        private const val MAX_POLL_DELAY_MS = 480_000L
+        private const val MAX_BACKOFF_SHIFT = 4
     }
 }
