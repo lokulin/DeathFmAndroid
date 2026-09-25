@@ -105,10 +105,17 @@ class PlaybackService : MediaLibraryService() {
     // enough Play Services (rare, but not impossible on the sideloaded/Auto-
     // adjacent hardware this app also targets) - casting just silently isn't
     // offered rather than crashing the service on startup.
+    //
+    // ResilientMediaItemConverter (not CastPlayer's default) - the custom
+    // DeathFmCastReceiver issues its own receiver-initiated loads when
+    // switching stations (a TV remote or a phone's system media widget),
+    // and Media3's DefaultMediaItemConverter crashes on any queue item it
+    // didn't originate itself. See that class's own doc comment for the
+    // full story.
     private fun initializeCastPlayer() {
         try {
             val castContext = CastContext.getSharedInstance(this)
-            castPlayer = CastPlayer(castContext).apply {
+            castPlayer = CastPlayer(castContext, ResilientMediaItemConverter()).apply {
                 setSessionAvailabilityListener(castSessionListener)
                 addListener(playerListener)
             }
