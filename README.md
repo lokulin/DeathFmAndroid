@@ -12,7 +12,7 @@ media controls and Android Auto support essentially for free via Media3.
 |---|---|
 | `MainActivity.kt` | Compose UI host; connects a `MediaController` to `PlaybackService` and flips between the player and settings screens. |
 | `playback/PlaybackService.kt` | `MediaLibraryService` owning the `ExoPlayer`/`CastPlayer`/`MediaSession` trio - drives lock-screen/notification controls, the app's own UI, Android Auto's browse+playback UI, and Chromecast, all from one session. Handles audio focus and "becoming noisy" (Bluetooth/headphone disconnect) pauses, implements playback resumption so Android Auto launches straight into the player instead of a one-item browse list, and hands the [DeathFmCastReceiver](https://github.com/lokulin/DeathFmCastReceiver) custom receiver a Last.fm session over Cast's custom message channel so scrobbling keeps working even if this app is closed after casting starts. |
-| `playback/ResilientMediaItemConverter.kt` | Wraps Media3's `DefaultMediaItemConverter` for `CastPlayer` - the default one crashes (an uncaught `JSONException`) on any Cast queue item it didn't originate itself, which is exactly what happens when DeathFmCastReceiver switches stations on its own (a TV remote or a phone's system media widget) rather than this app initiating a new load. Confirmed live via `adb logcat` - see its own doc comment for the full stack trace and reasoning. |
+| `playback/ResilientMediaItemConverter.kt` | Wraps Media3's `DefaultMediaItemConverter` for `CastPlayer`. The default converter throws an uncaught `JSONException` on any Cast queue item it didn't originate itself - which happens whenever DeathFmCastReceiver switches stations on its own (a TV remote or a phone's system media widget) rather than this app initiating the load. This wrapper tolerates that case instead of crashing; see its doc comment for the full stack trace. |
 | `cast/CastOptionsProvider.kt` | Points the Cast SDK at the custom receiver app (`DeathFmCastReceiver`) instead of the default shared receiver. |
 | `playback/Station.kt` | Station metadata (stream URL, now-playing endpoint). Currently just `Death.FM` - a list of one on purpose, so adding the other four death.fm network stations later is a data change, not a rework. |
 | `nowplaying/NowPlayingRepository.kt` | Polls death.fm's now-playing JSON endpoint and exposes it as a `StateFlow`. Timed to poll again right after the current track is expected to end (using the real `Length`/elapsed data), rather than a flat 30s cadence, which falls back to as the ceiling. |
@@ -30,30 +30,29 @@ media controls and Android Auto support essentially for free via Media3.
 ## Status
 
 Tagged `v0.4.2` (2026-09-23). Core playback, now-playing metadata, the
-player UI, Last.fm scrobbling, Android Auto, and Chromecast have all been
-tested end to end on real hardware (a Pixel 7, a Lenovo tablet for the
-landscape layout, an actual car head unit for Android Auto, and a real
-Chromecast) - not just reasoned about. Still a skeleton in scope, though -
-not a finished app:
+player UI, Last.fm scrobbling, Android Auto, and Chromecast all work end to
+end on real hardware (a Pixel 7, a Lenovo tablet for the landscape layout,
+an actual car head unit for Android Auto, and a real Chromecast). Still a
+skeleton in scope, though - not a finished app:
 
 - Only the `dfm` station is wired up; the other four (`1980s.fm`, `adagio.fm`,
   `entranced.fm`, `streamingsoundtracks.com`) share the same API shape and
   are a small addition to `Stations.all` when wanted.
-- Android Auto has been verified against a real head unit: it launches
-  straight into the player (via playback resumption, skipping the one-item
-  browse list), and audio focus / "becoming noisy" handling means switching
-  to/from other media apps and disconnecting Bluetooth behave correctly.
+- Android Auto launches straight into the player (via playback resumption,
+  skipping the one-item browse list), and audio focus / "becoming noisy"
+  handling means switching to/from other media apps and disconnecting
+  Bluetooth behave correctly.
 - No Discord Rich Presence - unlike the desktop app, there's no local RPC
   pipe to talk to on Android, so it's out of scope here entirely.
-- Last.fm's Connect flow is fully wired (real two-step auth: opens the
+- Last.fm's Connect flow is fully wired: real two-step auth that opens the
   browser, then waits for the user to explicitly confirm they approved it
-  before calling `auth.getSession` - see `LastFmConnectionState`) and has
-  been tested against a real Last.fm account. While casting, this app's own
-  `LastFmScrobbler` is suppressed and the Cast receiver scrobbles instead
-  (see [DeathFmCastReceiver](https://github.com/lokulin/DeathFmCastReceiver)'s
-  `LASTFM_SCROBBLING_PLAN.md`) - confirmed end to end (a real
-  `track.updateNowPlaying` + `track.scrobble` landing on Last.fm) with this
-  app fully closed part-way through.
+  before calling `auth.getSession` (see `LastFmConnectionState`). While
+  casting, this app's own `LastFmScrobbler` is suppressed and the Cast
+  receiver scrobbles instead (see
+  [DeathFmCastReceiver](https://github.com/lokulin/DeathFmCastReceiver)'s
+  `LASTFM_SCROBBLING_PLAN.md`), including the case where this app is closed
+  part-way through a cast session - the receiver keeps sending
+  `track.updateNowPlaying`/`track.scrobble` independently.
 - Chromecast support: casts to a custom receiver
   ([DeathFmCastReceiver](https://github.com/lokulin/DeathFmCastReceiver),
   deployed at `deathfm-cast.l6n.uk`) rather than the default shared
@@ -90,12 +89,12 @@ not a finished app:
       `Html.fromHtml(...)`.
   - **`PlayStart`/`SystemTime` are NOT reliable absolute UTC timestamps**,
     despite looking like naive ISO datetimes and despite the station
-    presenting them as such - checked live against a real UTC clock, the
-    station's own clock was a flat 4 hours off (it looks like it's actually
-    running on US Eastern time and mislabeling its own timestamps). Only
-    the *delta* between the two fields is trustworthy. `NowPlayingRepository`
-    computes `elapsedAtFetchMs = SystemTime - PlayStart` and anchors it to
-    this device's own correct clock (`fetchedAtDeviceMs`) rather than ever
+    presenting them as such - the station's clock runs a flat 4 hours off
+    real UTC (it looks like it's actually on US Eastern time and mislabeling
+    its own timestamps). Only the *delta* between the two fields is
+    trustworthy. `NowPlayingRepository` computes
+    `elapsedAtFetchMs = SystemTime - PlayStart` and anchors it to this
+    device's own correct clock (`fetchedAtDeviceMs`) rather than ever
     treating the station's clock as absolute - see the doc comments on
     `NowPlayingMetadata` for the full reasoning. Worth re-checking
     periodically in case death.fm ever fixes their server clock.
