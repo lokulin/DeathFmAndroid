@@ -13,15 +13,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -30,9 +25,11 @@ import com.terraeclectic.deathfm.settings.SettingsStore
 import com.terraeclectic.deathfm.ui.theme.DeathFmTheme
 
 /**
- * Last.fm credentials editor - the Android equivalent of DeathFmTray's
+ * Last.fm connection screen - the Android equivalent of DeathFmTray's
  * SettingsForm.cs, minus Discord (no viable RPC surface on mobile - see
- * README discussion).
+ * README discussion). The app's own Last.fm API key/secret are baked in
+ * (see LastFmCredentials) rather than entered here, so this screen only
+ * needs to drive the per-user Connect/Disconnect flow.
  *
  * The Connect flow mirrors Last.fm's real desktop-app auth steps rather than
  * faking it: [LastFmConnectionState.AwaitingApproval] means a browser tab is
@@ -46,15 +43,12 @@ import com.terraeclectic.deathfm.ui.theme.DeathFmTheme
 fun SettingsScreen(
     settings: SettingsStore,
     connectionState: LastFmConnectionState,
-    onConnectClicked: (apiKey: String, apiSecret: String) -> Unit,
+    onConnectClicked: () -> Unit,
     onApprovedClicked: () -> Unit,
     onCancelConnect: () -> Unit,
     onDisconnectClicked: () -> Unit,
     onBack: () -> Unit,
 ) {
-    var apiKey by remember { mutableStateOf(settings.lastFmApiKey.orEmpty()) }
-    var apiSecret by remember { mutableStateOf(settings.lastFmApiSecret.orEmpty()) }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -76,35 +70,9 @@ fun SettingsScreen(
         ) {
             Text("Last.fm scrobbling")
 
-            val fieldsEditable = connectionState is LastFmConnectionState.Disconnected ||
-                connectionState is LastFmConnectionState.Failed
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = {
-                    apiKey = it
-                    settings.lastFmApiKey = it
-                },
-                label = { Text("API key") },
-                enabled = fieldsEditable,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = apiSecret,
-                onValueChange = {
-                    apiSecret = it
-                    settings.lastFmApiSecret = it
-                },
-                label = { Text("Shared secret") },
-                enabled = fieldsEditable,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
             when (connectionState) {
                 is LastFmConnectionState.Disconnected -> {
-                    Button(
-                        onClick = { onConnectClicked(apiKey, apiSecret) },
-                        enabled = apiKey.isNotBlank() && apiSecret.isNotBlank(),
-                    ) { Text("Connect…") }
+                    Button(onClick = onConnectClicked) { Text("Connect…") }
                 }
 
                 is LastFmConnectionState.Failed -> {
@@ -112,10 +80,7 @@ fun SettingsScreen(
                         text = connectionState.message,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    Button(
-                        onClick = { onConnectClicked(apiKey, apiSecret) },
-                        enabled = apiKey.isNotBlank() && apiSecret.isNotBlank(),
-                    ) { Text("Try again") }
+                    Button(onClick = onConnectClicked) { Text("Try again") }
                 }
 
                 is LastFmConnectionState.AwaitingApproval -> {
@@ -140,7 +105,7 @@ private fun SettingsScreenDisconnectedPreview() {
         SettingsScreen(
             settings = SettingsStore(LocalContext.current),
             connectionState = LastFmConnectionState.Disconnected,
-            onConnectClicked = { _, _ -> },
+            onConnectClicked = {},
             onApprovedClicked = {},
             onCancelConnect = {},
             onDisconnectClicked = {},
@@ -156,7 +121,7 @@ private fun SettingsScreenAwaitingApprovalPreview() {
         SettingsScreen(
             settings = SettingsStore(LocalContext.current),
             connectionState = LastFmConnectionState.AwaitingApproval,
-            onConnectClicked = { _, _ -> },
+            onConnectClicked = {},
             onApprovedClicked = {},
             onCancelConnect = {},
             onDisconnectClicked = {},
@@ -172,7 +137,7 @@ private fun SettingsScreenConnectedPreview() {
         SettingsScreen(
             settings = SettingsStore(LocalContext.current),
             connectionState = LastFmConnectionState.Connected,
-            onConnectClicked = { _, _ -> },
+            onConnectClicked = {},
             onApprovedClicked = {},
             onCancelConnect = {},
             onDisconnectClicked = {},
@@ -188,7 +153,7 @@ private fun SettingsScreenFailedPreview() {
         SettingsScreen(
             settings = SettingsStore(LocalContext.current),
             connectionState = LastFmConnectionState.Failed("Couldn't connect to Last.fm."),
-            onConnectClicked = { _, _ -> },
+            onConnectClicked = {},
             onApprovedClicked = {},
             onCancelConnect = {},
             onDisconnectClicked = {},

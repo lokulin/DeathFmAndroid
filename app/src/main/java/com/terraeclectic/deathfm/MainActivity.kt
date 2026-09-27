@@ -20,6 +20,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.terraeclectic.deathfm.lastfm.LastFmClient
+import com.terraeclectic.deathfm.lastfm.LastFmCredentials
 import com.terraeclectic.deathfm.playback.PlaybackService
 import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_ASIN
 import com.terraeclectic.deathfm.playback.PlaybackService.Companion.EXTRA_ELAPSED_AT_FETCH_MS
@@ -159,10 +160,8 @@ class MainActivity : FragmentActivity() {
                         SettingsScreen(
                             settings = settings,
                             connectionState = lastFmState,
-                            onConnectClicked = { apiKey, apiSecret ->
+                            onConnectClicked = {
                                 startLastFmConnect(
-                                    apiKey = apiKey,
-                                    apiSecret = apiSecret,
                                     onToken = { token -> pendingAuthToken = token },
                                     onStateChange = { state -> lastFmState = state },
                                 )
@@ -171,8 +170,6 @@ class MainActivity : FragmentActivity() {
                                 val token = pendingAuthToken
                                 if (token != null) {
                                     confirmLastFmApproval(
-                                        apiKey = settings.lastFmApiKey.orEmpty(),
-                                        apiSecret = settings.lastFmApiSecret.orEmpty(),
                                         token = token,
                                         onStateChange = { state -> lastFmState = state },
                                     )
@@ -263,14 +260,12 @@ class MainActivity : FragmentActivity() {
      * it" button.
      */
     private fun startLastFmConnect(
-        apiKey: String,
-        apiSecret: String,
         onToken: (String) -> Unit,
         onStateChange: (LastFmConnectionState) -> Unit,
     ) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val client = LastFmClient(apiKey, apiSecret)
+                val client = LastFmClient(LastFmCredentials.API_KEY, LastFmCredentials.API_SECRET)
                 val token = client.getToken()
                 val authUrl = client.buildAuthUrl(token)
                 launch(Dispatchers.Main) {
@@ -281,7 +276,7 @@ class MainActivity : FragmentActivity() {
             } catch (e: Exception) {
                 Log.w(TAG, "Last.fm getToken failed", e)
                 launch(Dispatchers.Main) {
-                    onStateChange(LastFmConnectionState.Failed("Couldn't reach Last.fm - check your API key/secret and try again."))
+                    onStateChange(LastFmConnectionState.Failed("Couldn't reach Last.fm - try again."))
                 }
             }
         }
@@ -297,14 +292,12 @@ class MainActivity : FragmentActivity() {
      * one is still good.
      */
     private fun confirmLastFmApproval(
-        apiKey: String,
-        apiSecret: String,
         token: String,
         onStateChange: (LastFmConnectionState) -> Unit,
     ) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val client = LastFmClient(apiKey, apiSecret)
+                val client = LastFmClient(LastFmCredentials.API_KEY, LastFmCredentials.API_SECRET)
                 val sessionKey = client.getSession(token)
                 (application as DeathFmApp).settings.lastFmSessionKey = sessionKey
                 launch(Dispatchers.Main) { onStateChange(LastFmConnectionState.Connected) }

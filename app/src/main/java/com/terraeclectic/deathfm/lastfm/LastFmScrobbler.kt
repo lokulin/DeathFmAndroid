@@ -49,18 +49,14 @@ class LastFmScrobbler(
     }
 
     private fun onMetadata(metadata: NowPlayingMetadata) {
-        val apiKey = settings.lastFmApiKey
-        val apiSecret = settings.lastFmApiSecret
         val sessionKey = settings.lastFmSessionKey
-        if (!isPlaying || sessionKey.isNullOrBlank() || apiKey.isNullOrBlank() || apiSecret.isNullOrBlank()) return
+        if (!isPlaying || sessionKey.isNullOrBlank()) return
         if (metadata.trackKey == lastScrobbledKey) return
 
-        // Built fresh from current settings each time, rather than cached at
-        // start() - this is a long-lived Service, so a client cached once
-        // would keep using stale API key/secret if the user edits Settings
-        // while it's already running. Constructing one is cheap (no network
-        // call), so there's no real cost to not caching it.
-        val lastFm = LastFmClient(apiKey, apiSecret)
+        // Built fresh each time rather than cached at start() - cheap (no
+        // network call), and keeps this in step with onMetadata's other
+        // per-call reads rather than assuming anything about client lifetime.
+        val lastFm = LastFmClient(LastFmCredentials.API_KEY, LastFmCredentials.API_SECRET)
 
         try {
             if (metadata.trackKey != lastNowPlayingKey) {

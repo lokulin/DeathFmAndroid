@@ -17,6 +17,7 @@ import androidx.media3.session.MediaSession.ControllerInfo
 import androidx.media3.common.util.UnstableApi
 import com.google.android.gms.cast.framework.CastContext
 import com.terraeclectic.deathfm.DeathFmApp
+import com.terraeclectic.deathfm.lastfm.LastFmCredentials
 import com.terraeclectic.deathfm.lastfm.LastFmScrobbler
 import com.terraeclectic.deathfm.nowplaying.NowPlayingMetadata
 import com.terraeclectic.deathfm.nowplaying.NowPlayingRepository
@@ -154,8 +155,8 @@ class PlaybackService : MediaLibraryService() {
         if (!settings.isLastFmConnected) return
 
         val message = JSONObject().apply {
-            put("apiKey", settings.lastFmApiKey)
-            put("apiSecret", settings.lastFmApiSecret)
+            put("apiKey", LastFmCredentials.API_KEY)
+            put("apiSecret", LastFmCredentials.API_SECRET)
             put("sessionKey", settings.lastFmSessionKey)
         }.toString()
 

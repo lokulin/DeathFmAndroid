@@ -18,8 +18,9 @@ media controls and Android Auto support essentially for free via Media3.
 | `nowplaying/NowPlayingRepository.kt` | Polls death.fm's now-playing JSON endpoint and exposes it as a `StateFlow`. Timed to poll again right after the current track is expected to end (using the real `Length`/elapsed data), rather than a flat 30s cadence, which falls back to as the ceiling. |
 | `nowplaying/NowPlayingMetadata.kt` | Parsed now-playing snapshot (track/artist/album/real length/start time/cover art). |
 | `lastfm/LastFmClient.kt` | Signed REST calls against Last.fm's Audioscrobbler API (auth, now-playing, scrobble). |
+| `lastfm/LastFmCredentials.kt` | This app's own baked-in Last.fm API key/secret (shared with the sibling desktop apps) - identifies the application, not any user's account. |
 | `lastfm/LastFmScrobbler.kt` | Feeds now-playing changes to Last.fm while actually playing; scrobble timing follows Last.fm's real "half the track or 4 minutes" rule. |
-| `settings/SettingsStore.kt` | Last.fm API key/secret/session, in a private `SharedPreferences` file. |
+| `settings/SettingsStore.kt` | Per-user Last.fm session, in a private `SharedPreferences` file. |
 | `ui/PlayerScreen.kt` | The player screen, laid out differently by orientation: portrait stacks full-width square artwork (with an iTunes Cover Flow-style reflection bleeding into the metadata area behind the text) above title/album/artist/progress/controls; landscape splits side by side (artwork at 80% height with its own reflection strip on the left, details/controls on the right) - rotation isn't locked, so a tablet gets a real landscape layout rather than a stretched portrait one. Both show a live progress bar + elapsed/total readout and a small Settings icon in the top-right corner. |
 | `ui/SettingsScreen.kt`, `ui/LastFmConnectionState.kt`, `ui/theme/Theme.kt` | The Last.fm settings screen (rendering each step of the real auth flow - Disconnected/AwaitingApproval/Connected/Failed), and the station-red dark theme matching death.fm's own branding. |
 | `queueplayed/QueuePlayedRepository.kt`, `ui/QueuePlayedScreen.kt` | Read-only "what's coming up" / "what recently played" browser, reverse-engineered from the player page's own Queue/Played tabs. Fetched lazily (only while that screen is open), not polled in the background. Phone/tablet only - deliberately not surfaced to Android Auto, see the Status notes below. |
@@ -147,11 +148,13 @@ tagging. Both workflows cache Gradle's dependency/build cache via
 
 ## Last.fm scrobbling
 
-Same setup as the desktop app - register a free API application at
-[last.fm/api/account/create](https://www.last.fm/api/account/create) (any
-name, blank callback URL) for an API key and shared secret, then paste them
-into the in-app Settings screen and tap Connect. Each person needs their own
-key rather than one baked into the source, since this repo is public.
+The app's own Last.fm API key/secret are baked in at build time
+(`lastfm/LastFmCredentials.kt`) - they just identify "the application" to
+Last.fm, the same way the sibling DeathFmTray and SomaMetalTray desktop apps'
+baked-in credentials do, and aren't a secret that grants access to anyone's
+account. There's nothing to register or paste in: just open Settings and tap
+Connect, which walks through Last.fm's real two-step browser-approval flow
+and stores the resulting per-user session key on-device.
 
 While casting, `PlaybackService` hands that same API key/secret/session key
 to the Cast receiver once (over a custom message channel, in memory on the
