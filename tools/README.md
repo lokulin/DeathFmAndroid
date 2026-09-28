@@ -1,5 +1,12 @@
 # tools/
 
+## store-listing/
+
+Scripts for preparing a Play Store submission: signed release builds, store
+screenshots (padded to a Play-safe aspect ratio without cropping), and the
+foreground-service permission demo video Play Console's permissions
+declaration form asks for. See [store-listing/README.md](store-listing/README.md).
+
 ## expand-logcat-buffer.sh
 
 Bumps the Pixel 7's logcat ring buffers from Android's default 256 KiB

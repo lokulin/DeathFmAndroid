@@ -1,25 +1,54 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Release signing credentials (Play Store upload key) live in local.properties,
+// alongside sdk.dir - never committed. See DEVELOPING.md's Releasing section.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.terraeclectic.deathfm"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.terraeclectic.deathfm"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 8
-        versionName = "0.4.5"
+        targetSdk = 36
+        versionCode = 9
+        versionName = "0.4.6"
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystorePath = localProperties.getProperty("DEATHFM_KEYSTORE_PATH")
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
+                storePassword = localProperties.getProperty("DEATHFM_KEYSTORE_PASSWORD")
+                keyAlias = localProperties.getProperty("DEATHFM_KEY_ALIAS")
+                keyPassword = localProperties.getProperty("DEATHFM_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
+            ndk {
+                // Play Console flags AABs with unstripped native libs (e.g. Compose's
+                // libandroidx.graphics.path.so) unless a matching symbols file is
+                // uploaded alongside. FULL bundles one automatically at
+                // app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip.
+                debugSymbolLevel = "FULL"
+            }
         }
     }
 
