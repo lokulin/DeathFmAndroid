@@ -72,6 +72,8 @@ class WishlistRepository(
     private val lock = Mutex()
     private val _liked = MutableStateFlow<Set<String>>(emptySet())
     private val pending = LinkedHashMap<String, PendingOp>()
+    // The liked tracks themselves (oldest first), for the Liked list - _liked is only their folded keys.
+    private val entries = LinkedHashMap<String, WishlistEntry>()
 
     /** Keys ([WishlistEntry.key]) of the liked tracks. */
     val liked: StateFlow<Set<String>> = _liked.asStateFlow()
@@ -84,10 +86,15 @@ class WishlistRepository(
 
     fun isLiked(entry: WishlistEntry): Boolean = entry.key in _liked.value
 
+    /** The liked tracks, most recently liked first. */
+    fun likedEntries(): List<WishlistEntry> = entries.values.toList().asReversed()
+
     /** Flips [entry]'s liked state, persists it, tries to deliver, and returns the new state. */
     suspend fun toggle(entry: WishlistEntry): Boolean = lock.withLock {
         val nowLiked = entry.key !in _liked.value
         _liked.value = if (nowLiked) _liked.value + entry.key else _liked.value - entry.key
+        entries.remove(entry.key)
+        if (nowLiked) entries[entry.key] = entry
         pending.remove(entry.key) // the latest intent wins, and goes to the back of the queue
         pending[entry.key] = PendingOp(entry, nowLiked, clock())
         save()
@@ -110,6 +117,7 @@ class WishlistRepository(
     private fun save() {
         val json = JSONObject()
             .put("liked", JSONArray(_liked.value.toList()))
+            .put("entries", JSONArray(entries.values.map { entryJson(it) }))
             .put(
                 "pending",
                 JSONArray(
@@ -128,12 +136,37 @@ class WishlistRepository(
         storage.write(json.toString())
     }
 
+    private fun entryJson(entry: WishlistEntry) = JSONObject()
+        .put("artist", entry.artist)
+        .put("title", entry.title)
+        .put("album", entry.album)
+        .put("coverUrl", entry.coverUrl ?: JSONObject.NULL)
+        .put("source", entry.source)
+
+    private fun entryFrom(o: JSONObject) = WishlistEntry(
+        artist = o.getString("artist"),
+        title = o.getString("title"),
+        album = o.optString("album", ""),
+        coverUrl = if (o.isNull("coverUrl")) null else o.getString("coverUrl"),
+        source = o.optString("source", "deathfm"),
+    )
+
     private fun load() {
         val text = storage.read() ?: return
         try {
             val json = JSONObject(text)
             val likedKeys = json.optJSONArray("liked")
             _liked.value = (0 until (likedKeys?.length() ?: 0)).map { likedKeys!!.getString(it) }.toSet()
+            val saved = json.optJSONArray("entries")
+            for (i in 0 until (saved?.length() ?: 0)) {
+                val entry = entryFrom(saved!!.getJSONObject(i))
+                if (entry.key in _liked.value) entries[entry.key] = entry
+            }
+            // Likes from before entries were stored: all that survives is the folded key ("artist|title").
+            for (key in _liked.value - entries.keys) {
+                val (artist, title) = key.split("|", limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+                entries[key] = WishlistEntry(artist, title)
+            }
             val ops = json.optJSONArray("pending")
             for (i in 0 until (ops?.length() ?: 0)) {
                 val o = ops!!.getJSONObject(i)
@@ -149,6 +182,7 @@ class WishlistRepository(
         } catch (e: Exception) {
             // A corrupt file shouldn't take the player down - start empty.
             _liked.value = emptySet()
+            entries.clear()
             pending.clear()
         }
     }

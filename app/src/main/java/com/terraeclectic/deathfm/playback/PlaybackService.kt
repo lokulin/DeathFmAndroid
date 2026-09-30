@@ -6,6 +6,7 @@ import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -27,6 +28,7 @@ import com.terraeclectic.deathfm.lastfm.LastFmCredentials
 import com.terraeclectic.deathfm.lastfm.LastFmScrobbler
 import com.terraeclectic.deathfm.nowplaying.NowPlayingMetadata
 import com.terraeclectic.deathfm.nowplaying.NowPlayingRepository
+import com.terraeclectic.deathfm.queueplayed.QueuePlayedRepository
 import com.terraeclectic.deathfm.wishlist.WishlistEntry
 import com.terraeclectic.deathfm.wishlist.WishlistRepository
 import com.google.common.util.concurrent.Futures
@@ -65,7 +67,12 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var currentPlayer: Player
 
     private lateinit var mediaSession: MediaLibrarySession
+
+    // What the session sees in place of localPlayer, so Auto's queue can list the upcoming tracks without
+    // any of it being playable - see LiveStreamGuardPlayer.
+    private lateinit var guardedLocalPlayer: Player
     private lateinit var nowPlayingRepository: NowPlayingRepository
+    private lateinit var queueRepository: QueuePlayedRepository
     private lateinit var scrobbler: LastFmScrobbler
 
     // Private-build feature (see DeathFmApp.wishlist): null in public builds.
@@ -98,11 +105,13 @@ class PlaybackService : MediaLibraryService() {
             }
         currentPlayer = localPlayer
 
-        mediaSession = MediaLibrarySession.Builder(this, currentPlayer, librarySessionCallback)
+        guardedLocalPlayer = LiveStreamGuardPlayer(localPlayer)
+        mediaSession = MediaLibrarySession.Builder(this, guardedLocalPlayer, librarySessionCallback)
             .build()
 
         val app = application as DeathFmApp
         nowPlayingRepository = NowPlayingRepository(Stations.DEATH_FM)
+        queueRepository = QueuePlayedRepository(Stations.DEATH_FM)
 
         wishlist = app.wishlist
         wishlist?.let { repository ->
@@ -223,12 +232,94 @@ class PlaybackService : MediaLibraryService() {
         currentPlayer.stop()
 
         currentPlayer = newPlayer
-        mediaSession.player = newPlayer
+        mediaSession.player = if (newPlayer === localPlayer) guardedLocalPlayer else newPlayer
 
         if (mediaItem != null) {
             newPlayer.setMediaItem(mediaItem)
             newPlayer.playWhenReady = playWhenReady
             newPlayer.prepare()
+        }
+        applyUpcomingQueue()
+    }
+
+    /**
+     * Android Auto's "Queue" button lists the session player's playlist, so the
+     * tracks death.fm says are coming up are appended after the (live, endless)
+     * current item. They never play - the stream never ends to reach them, and
+     * [LiveStreamGuardPlayer] ignores taps on them - they exist only to be shown.
+     * Local playback only: a CastPlayer playlist edit would reload the stream on the TV.
+     */
+    private var upcomingItems: List<MediaItem> = emptyList()
+    private var upcomingForAsin: String? = null
+
+    private fun refreshUpcomingQueue(asin: String?) {
+        if (asin.isNullOrBlank() || asin == upcomingForAsin) return
+        upcomingForAsin = asin
+        serviceScope.launch {
+            try {
+                val queue = queueRepository.fetch(asin).queue.take(MAX_UPCOMING)
+                upcomingItems = queue.map { entry ->
+                    MediaItem.Builder()
+                        .setMediaId("queue:${entry.rank}:${entry.artist}|${entry.albumOrTrack}")
+                        .setUri(Stations.DEATH_FM.streamUrl) // ExoPlayer needs one to build the item; it's never prepared
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(entry.albumOrTrack)
+                                .setArtist(entry.artist)
+                                .setArtworkUri(entry.thumbnailUrl?.let { android.net.Uri.parse(it) })
+                                .setIsPlayable(true)
+                                .setIsBrowsable(false)
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                                .build(),
+                        )
+                        .build()
+                }
+                applyUpcomingQueue()
+            } catch (e: Exception) {
+                Log.w(TAG, "Couldn't load the upcoming queue", e)
+                upcomingForAsin = null // try again on the next poll
+            }
+        }
+    }
+
+    // Idempotent (it's also called from onTimelineChanged, which its own edits trigger): only touches the playlist if it differs.
+    private fun applyUpcomingQueue() {
+        val player = localPlayer
+        if (currentPlayer !== player || player.mediaItemCount == 0) return
+        val start = player.currentMediaItemIndex + 1
+        val have = (start until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
+        if (have == upcomingItems.map { it.mediaId }) return
+        if (start < player.mediaItemCount) player.removeMediaItems(start, player.mediaItemCount)
+        if (upcomingItems.isNotEmpty()) player.addMediaItems(upcomingItems)
+    }
+
+    /**
+     * The local player as the MediaSession sees it: a live stream has nothing to
+     * skip to, so the upcoming-queue entries (see [applyUpcomingQueue]) must not be
+     * reachable - no next/previous, and a tap on a queue row (Auto's
+     * skipToQueueItem) is ignored, leaving the stream playing untouched.
+     */
+    private class LiveStreamGuardPlayer(player: Player) : ForwardingPlayer(player) {
+        override fun getAvailableCommands(): Player.Commands =
+            super.getAvailableCommands().buildUpon()
+                .removeAll(
+                    Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                )
+                .build()
+
+        override fun isCommandAvailable(command: Int): Boolean = availableCommands.contains(command)
+        override fun hasNextMediaItem(): Boolean = false
+        override fun hasPreviousMediaItem(): Boolean = false
+        override fun seekToNext() {}
+        override fun seekToNextMediaItem() {}
+        override fun seekToPrevious() {}
+        override fun seekToPreviousMediaItem() {}
+        override fun seekToDefaultPosition(mediaItemIndex: Int) {
+            if (mediaItemIndex == currentMediaItemIndex) super.seekToDefaultPosition(mediaItemIndex)
+        }
+        override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+            if (mediaItemIndex == currentMediaItemIndex) super.seekTo(mediaItemIndex, positionMs)
         }
     }
 
@@ -260,6 +351,11 @@ class PlaybackService : MediaLibraryService() {
             // isPlaying-driven behaviour the moment currentPlayer switches
             // back off the CastPlayer.
             scrobbler.setPlaying(if (currentPlayer === castPlayer) false else isPlaying)
+        }
+
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            // A new play request replaces the whole playlist - put the upcoming rows back after it.
+            applyUpcomingQueue()
         }
 
         override fun onEvents(player: Player, events: Player.Events) {
@@ -308,6 +404,7 @@ class PlaybackService : MediaLibraryService() {
     private fun onNowPlayingChanged(metadata: NowPlayingMetadata) {
         latestNowPlaying = metadata
         refreshLikeButton() // a new track starts with its own heart state, even while casting
+        refreshUpcomingQueue(metadata.asin)
         if (currentPlayer === castPlayer) return
 
         val current = currentPlayer.currentMediaItem ?: return
@@ -434,6 +531,23 @@ class PlaybackService : MediaLibraryService() {
             .build()
     }
 
+    // Tapping a liked track just starts the stream (onAddMediaItems maps any unknown id to it) - a radio can't play a specific track.
+    private fun likedMediaItem(entry: WishlistEntry): MediaItem =
+        MediaItem.Builder()
+            .setMediaId("liked:${entry.key}")
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(entry.title)
+                    .setArtist(entry.artist)
+                    .setAlbumTitle(entry.album.ifBlank { null })
+                    .setArtworkUri(entry.coverUrl?.let { android.net.Uri.parse(it) })
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .build(),
+            )
+            .build()
+
     private fun browsableFolder(id: String, title: String): MediaItem =
         MediaItem.Builder()
             .setMediaId(id)
@@ -489,10 +603,14 @@ class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
-            val children = if (parentId == ROOT_ID) {
-                Stations.all.map { stationMediaItem(it) }
-            } else {
-                emptyList()
+            val liked = wishlist
+            val children = when {
+                parentId == ROOT_ID ->
+                    Stations.all.map { stationMediaItem(it) } +
+                        // Private builds only (the wishlist is null otherwise): the tracks hearted from the car/phone.
+                        listOfNotNull(liked?.let { browsableFolder(LIKED_ID, "Liked") })
+                parentId == LIKED_ID && liked != null -> liked.likedEntries().map { likedMediaItem(it) }
+                else -> emptyList()
             }
             return Futures.immediateFuture(
                 LibraryResult.ofItemList(com.google.common.collect.ImmutableList.copyOf(children), params)
@@ -539,6 +657,8 @@ class PlaybackService : MediaLibraryService() {
         private const val TAG = "PlaybackService"
         private const val COMMAND_TOGGLE_LIKE = "com.terraeclectic.deathfm.TOGGLE_LIKE"
         private const val ROOT_ID = "root"
+        private const val LIKED_ID = "browse:liked"
+        private const val MAX_UPCOMING = 10
         private const val MIME_TYPE_CAST_AUDIO_AAC = "audio/aac"
         // Must match the receiver's listener namespace exactly
         // (DeathFmCastReceiver's index.html) - no Cast Console registration

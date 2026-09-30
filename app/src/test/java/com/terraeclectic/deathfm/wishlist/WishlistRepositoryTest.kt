@@ -135,4 +135,15 @@ class WishlistRepositoryTest {
         r.toggle(pantera)
         assertTrue(r.liked.value.isEmpty())
     }
+
+    @Test fun likedEntriesAreNewestFirstSurviveRestartAndDropOnUnlike() = runBlocking {
+        val storage = MemoryStorage()
+        val r = repo(storage = storage)
+        r.toggle(abnormality)
+        r.toggle(pantera)
+        assertEquals(listOf(pantera, abnormality), r.likedEntries())
+        assertEquals(listOf(pantera, abnormality), repo(storage = storage).likedEntries())
+        r.toggle(pantera)
+        assertEquals(listOf(abnormality), r.likedEntries())
+    }
 }
