@@ -21,8 +21,8 @@ android {
         applicationId = "com.terraeclectic.deathfm"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.4.6"
+        versionCode = 10
+        versionName = "0.4.7"
 
         // The wishlist (like button) talks to a private SpaceStation server and is
         // compiled in only when local.properties supplies its URL and Cloudflare

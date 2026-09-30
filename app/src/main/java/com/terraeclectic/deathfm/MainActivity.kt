@@ -206,6 +206,12 @@ class MainActivity : FragmentActivity() {
                             errorMessage = queuePlayedError,
                             queue = queueEntries,
                             played = playedEntries,
+                            liked = wishlist?.let { repository ->
+                                likedKeys // re-read whenever a heart changes
+                                repository.likedEntries().mapIndexed { i, e ->
+                                    QueueEntry(rank = i + 1, thumbnailUrl = e.coverUrl, artist = e.artist, albumOrTrack = e.title)
+                                }
+                            },
                             onRefresh = {
                                 fetchQueuePlayed(
                                     asin = trackAsin,

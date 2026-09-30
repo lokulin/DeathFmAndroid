@@ -61,6 +61,8 @@ fun QueuePlayedScreen(
     played: List<QueueEntry>,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
+    /** The tracks hearted so far (rank = position, newest first); null in public builds, which have no Liked tab. */
+    liked: List<QueueEntry>? = null,
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -85,12 +87,13 @@ fun QueuePlayedScreen(
             TabRow(selectedTabIndex = selectedTab) {
                 Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Queue") })
                 Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Played") })
+                if (liked != null) Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Liked") })
             }
 
-            val entries = if (selectedTab == 0) queue else played
+            val entries = when (selectedTab) { 0 -> queue; 1 -> played; else -> liked.orEmpty() }
             when {
-                isLoading && entries.isEmpty() -> CenteredMessage { CircularProgressIndicator() }
-                errorMessage != null && entries.isEmpty() -> CenteredMessage {
+                isLoading && entries.isEmpty() && selectedTab != 2 -> CenteredMessage { CircularProgressIndicator() }
+                errorMessage != null && entries.isEmpty() && selectedTab != 2 -> CenteredMessage {
                     Text(
                         text = errorMessage,
                         color = MaterialTheme.colorScheme.error,
@@ -99,7 +102,7 @@ fun QueuePlayedScreen(
                 }
                 entries.isEmpty() -> CenteredMessage {
                     Text(
-                        text = "Nothing to show yet.",
+                        text = if (selectedTab == 2) "Nothing liked yet - tap the heart on a track you want to remember." else "Nothing to show yet.",
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                         textAlign = TextAlign.Center,
                     )
