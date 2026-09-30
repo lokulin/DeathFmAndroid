@@ -3,6 +3,7 @@ package com.terraeclectic.deathfm
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.compose.setContent
@@ -10,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +37,9 @@ import com.terraeclectic.deathfm.ui.QueuePlayedScreen
 import com.terraeclectic.deathfm.ui.SettingsScreen
 import com.terraeclectic.deathfm.ui.theme.DeathFmTheme
 import androidx.lifecycle.lifecycleScope
+import com.terraeclectic.deathfm.wishlist.WishlistEntry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 private enum class AppScreen { PLAYER, SETTINGS, QUEUE_PLAYED }
@@ -85,6 +89,15 @@ class MainActivity : FragmentActivity() {
                 var trackElapsedAtFetchMs by remember { mutableStateOf(0L) }
                 var trackFetchedAtDeviceMs by remember { mutableStateOf(0L) }
                 var trackAsin by remember { mutableStateOf<String?>(null) }
+                // Private builds only (null wishlist = no heart): the liked set drives the heart's fill.
+                val wishlist = (application as DeathFmApp).wishlist
+                val likedKeys by (wishlist?.liked ?: MutableStateFlow(emptySet<String>())).collectAsState()
+                val wishlistEntry = if (wishlist != null) {
+                    WishlistEntry(artist = trackArtist, title = trackTitle, album = trackAlbum, coverUrl = coverUrl)
+                        .takeIf { it.isRealTrack }
+                } else {
+                    null
+                }
                 var queueEntries by remember { mutableStateOf<List<QueueEntry>>(emptyList()) }
                 var playedEntries by remember { mutableStateOf<List<QueueEntry>>(emptyList()) }
                 var queuePlayedLoading by remember { mutableStateOf(false) }
@@ -242,6 +255,22 @@ class MainActivity : FragmentActivity() {
                                     onResult = { queue, played -> queueEntries = queue; playedEntries = played },
                                     onError = { message -> queuePlayedError = message },
                                 )
+                            },
+                            likeAvailable = wishlistEntry != null,
+                            isLiked = wishlistEntry?.key in likedKeys,
+                            onToggleLike = {
+                                val entry = wishlistEntry
+                                val repository = wishlist
+                                if (entry != null && repository != null) {
+                                    lifecycleScope.launch {
+                                        val nowLiked = repository.toggle(entry)
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            if (nowLiked) "Added to your wishlist" else "Removed from your wishlist",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                }
                             },
                         )
                     }

@@ -1,5 +1,6 @@
 package com.terraeclectic.deathfm.playback
 
+import android.os.Bundle
 import android.util.Log
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.SessionAvailabilityListener
@@ -9,18 +10,25 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.ControllerInfo
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.common.util.UnstableApi
 import com.google.android.gms.cast.framework.CastContext
+import com.google.common.collect.ImmutableList
 import com.terraeclectic.deathfm.DeathFmApp
+import com.terraeclectic.deathfm.R
 import com.terraeclectic.deathfm.lastfm.LastFmCredentials
 import com.terraeclectic.deathfm.lastfm.LastFmScrobbler
 import com.terraeclectic.deathfm.nowplaying.NowPlayingMetadata
 import com.terraeclectic.deathfm.nowplaying.NowPlayingRepository
+import com.terraeclectic.deathfm.wishlist.WishlistEntry
+import com.terraeclectic.deathfm.wishlist.WishlistRepository
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -60,6 +68,10 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var nowPlayingRepository: NowPlayingRepository
     private lateinit var scrobbler: LastFmScrobbler
 
+    // Private-build feature (see DeathFmApp.wishlist): null in public builds.
+    private var wishlist: WishlistRepository? = null
+    private var latestNowPlaying: NowPlayingMetadata = NowPlayingMetadata.EMPTY
+
     private val rootItem = browsableFolder(ROOT_ID, "Death.FM Network")
 
     override fun onCreate() {
@@ -91,6 +103,12 @@ class PlaybackService : MediaLibraryService() {
 
         val app = application as DeathFmApp
         nowPlayingRepository = NowPlayingRepository(Stations.DEATH_FM)
+
+        wishlist = app.wishlist
+        wishlist?.let { repository ->
+            // The heart in the car / notification follows the liked set (a like from the phone UI too).
+            serviceScope.launch { repository.liked.collect { refreshLikeButton() } }
+        }
 
         scrobbler = LastFmScrobbler(app.settings, nowPlayingRepository.nowPlaying)
         scrobbler.start(serviceScope)
@@ -288,6 +306,8 @@ class PlaybackService : MediaLibraryService() {
      * hand-off (set once in switchToPlayer) for the rest of the session.
      */
     private fun onNowPlayingChanged(metadata: NowPlayingMetadata) {
+        latestNowPlaying = metadata
+        refreshLikeButton() // a new track starts with its own heart state, even while casting
         if (currentPlayer === castPlayer) return
 
         val current = currentPlayer.currentMediaItem ?: return
@@ -295,6 +315,41 @@ class PlaybackService : MediaLibraryService() {
             .setMediaMetadata(buildMetadata(metadata))
             .build()
         currentPlayer.replaceMediaItem(currentPlayer.currentMediaItemIndex, updated)
+    }
+
+    /** The track playing right now, as a wishlist entry - null before the first real track. */
+    private fun currentWishlistEntry(): WishlistEntry? =
+        latestNowPlaying
+            .let { WishlistEntry(artist = it.artist, title = it.track, album = it.album, coverUrl = it.coverUrl) }
+            .takeIf { it.isRealTrack }
+
+    /** The single heart button Android Auto (and the notification) shows next to the transport controls. */
+    private fun likeLayout(): ImmutableList<CommandButton> {
+        val entry = currentWishlistEntry()
+        val liked = entry != null && wishlist?.isLiked(entry) == true
+        return ImmutableList.of(
+            CommandButton.Builder()
+                .setDisplayName(if (liked) "Remove from wishlist" else "Add to wishlist")
+                .setIconResId(if (liked) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline)
+                .setSessionCommand(SessionCommand(COMMAND_TOGGLE_LIKE, Bundle.EMPTY))
+                .setEnabled(entry != null)
+                .build(),
+        )
+    }
+
+    // There's no toast in a car: the button itself has to visibly change, so the layout is re-published on every
+    // track change and every like/unlike.
+    private fun refreshLikeButton() {
+        if (wishlist == null || !::mediaSession.isInitialized) return
+        mediaSession.setCustomLayout(likeLayout())
+    }
+
+    // The metadata is snapshotted at the moment of the tap: the poll can move on to the next track while the
+    // request is still in flight, and it's the track the user heard that they meant.
+    private fun toggleLikeFromSession() {
+        val repository = wishlist ?: return
+        val entry = currentWishlistEntry() ?: return
+        serviceScope.launch { repository.toggle(entry) }
     }
 
     private fun buildMetadata(metadata: NowPlayingMetadata): MediaMetadata =
@@ -392,6 +447,33 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
     private val librarySessionCallback = object : MediaLibrarySession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            if (wishlist == null) return MediaSession.ConnectionResult.AcceptedResultBuilder(session).build()
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+                .add(SessionCommand(COMMAND_TOGGLE_LIKE, Bundle.EMPTY))
+                .build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(commands)
+                .setCustomLayout(likeLayout())
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction == COMMAND_TOGGLE_LIKE) {
+                toggleLikeFromSession()
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+        }
+
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
             browser: ControllerInfo,
@@ -455,6 +537,7 @@ class PlaybackService : MediaLibraryService() {
 
     companion object {
         private const val TAG = "PlaybackService"
+        private const val COMMAND_TOGGLE_LIKE = "com.terraeclectic.deathfm.TOGGLE_LIKE"
         private const val ROOT_ID = "root"
         private const val MIME_TYPE_CAST_AUDIO_AAC = "audio/aac"
         // Must match the receiver's listener namespace exactly

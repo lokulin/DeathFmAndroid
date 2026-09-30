@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
@@ -98,6 +100,10 @@ fun PlayerScreen(
     onPlayPause: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenQueuePlayed: () -> Unit,
+    /** Shows the like heart (private builds only - see DeathFmApp.wishlist). */
+    likeAvailable: Boolean = false,
+    isLiked: Boolean = false,
+    onToggleLike: () -> Unit = {},
 ) {
     // Surface (not just a Column with a background modifier) is what actually
     // propagates the theme's content color to children - without it, Text
@@ -165,6 +171,17 @@ fun PlayerScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CastButton()
+
+                if (likeAvailable) {
+                    IconButton(onClick = onToggleLike) {
+                        Icon(
+                            imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            contentDescription = if (isLiked) "Remove from wishlist" else "Add to wishlist",
+                            tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                }
 
                 IconButton(onClick = onOpenSettings) {
                     Icon(

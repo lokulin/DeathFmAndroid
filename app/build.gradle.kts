@@ -23,6 +23,20 @@ android {
         targetSdk = 36
         versionCode = 9
         versionName = "0.4.6"
+
+        // The wishlist (like button) talks to a private SpaceStation server and is
+        // compiled in only when local.properties supplies its URL and Cloudflare
+        // Access token - i.e. only in the maintainer's own builds. CI and the public
+        // release builds have no such file, so WISHLIST_ENABLED is false and these
+        // fields are empty: nothing private ends up in a released APK.
+        val spaceStationUrl = localProperties.getProperty("SPACESTATION_URL", "")
+        val spaceStationClientId = localProperties.getProperty("SPACESTATION_CF_ACCESS_CLIENT_ID", "")
+        val spaceStationClientSecret = localProperties.getProperty("SPACESTATION_CF_ACCESS_CLIENT_SECRET", "")
+        val wishlistEnabled = spaceStationUrl.isNotBlank() && spaceStationClientId.isNotBlank() && spaceStationClientSecret.isNotBlank()
+        buildConfigField("boolean", "WISHLIST_ENABLED", wishlistEnabled.toString())
+        buildConfigField("String", "SPACESTATION_URL", "\"${if (wishlistEnabled) spaceStationUrl else ""}\"")
+        buildConfigField("String", "SPACESTATION_CF_ACCESS_CLIENT_ID", "\"${if (wishlistEnabled) spaceStationClientId else ""}\"")
+        buildConfigField("String", "SPACESTATION_CF_ACCESS_CLIENT_SECRET", "\"${if (wishlistEnabled) spaceStationClientSecret else ""}\"")
     }
 
     signingConfigs {
@@ -63,6 +77,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -119,4 +134,8 @@ dependencies {
     // Parses the Queue/Played HTML fragments out of the player page's
     // get_db_info endpoint - see queueplayed/QueuePlayedRepository.kt.
     implementation("org.jsoup:jsoup:1.18.1")
+
+    testImplementation("junit:junit:4.13.2")
+    // android.jar's org.json is a stub in JVM unit tests; the wishlist queue persists as JSON.
+    testImplementation("org.json:json:20240303")
 }

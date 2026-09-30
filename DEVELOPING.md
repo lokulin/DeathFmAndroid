@@ -120,6 +120,34 @@ git push origin v0.2.0
 tagging. Both workflows cache Gradle's dependency/build cache via
 `gradle/actions/setup-gradle`.
 
+## Private builds: the like button ("wishlist")
+
+An optional feature that only exists in builds made by the maintainer: a heart on
+the player (and a heart button on the Android Auto / notification media controls)
+that saves the currently playing radio track - artist, title, album, cover - to a
+private server, so albums worth owning can be acquired later. It is **compiled off
+in every public/CI build**, because the server's credentials must never ship in a
+public APK.
+
+- It switches on only when `local.properties` (git-ignored, next to `sdk.dir`)
+  defines `SPACESTATION_URL`, `SPACESTATION_CF_ACCESS_CLIENT_ID` and
+  `SPACESTATION_CF_ACCESS_CLIENT_SECRET`. `app/build.gradle.kts` turns those into
+  `BuildConfig.WISHLIST_ENABLED` and three string fields; without all three the flag is
+  `false`, the strings are empty, `DeathFmApp.wishlist` is `null` and the UI shows no heart.
+- **Never publish or share an APK built with those properties set** - the token is inside
+  it. The release workflow builds without them (it has no such secrets), so tagged
+  releases are unaffected.
+- `wishlist/WishlistRepository.kt` holds the liked set and a queue of changes not yet
+  delivered (persisted, latest intent per track wins, oldest-first delivery that stops
+  at the first failure), so a like made in a tunnel is sent later. `SpaceStationWishlistApi`
+  does the `POST`/`DELETE /wishlist` calls. The phone UI and the Android Auto button share
+  one repository, so the heart is in step on both.
+- Android Auto: the heart is a Media3 custom-layout `CommandButton` (`COMMAND_TOGGLE_LIKE`);
+  the layout is re-published on every track change and like/unlike because there is no toast
+  in a car - the icon itself has to change. The track is snapshotted at the moment of the tap.
+  Whether a given head unit shows the button is decided by the car; it has not been verified
+  on a real one yet.
+
 ## Last.fm scrobbling
 
 The app's own Last.fm API key/secret are baked in at build time
