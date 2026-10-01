@@ -24,19 +24,19 @@ android {
         versionCode = 10
         versionName = "0.4.7"
 
-        // The wishlist (like button) talks to a private SpaceStation server and is
+        // The wishlist (like button) talks to a private wishlist server and is
         // compiled in only when local.properties supplies its URL and Cloudflare
         // Access token - i.e. only in the maintainer's own builds. CI and the public
         // release builds have no such file, so WISHLIST_ENABLED is false and these
         // fields are empty: nothing private ends up in a released APK.
-        val spaceStationUrl = localProperties.getProperty("SPACESTATION_URL", "")
-        val spaceStationClientId = localProperties.getProperty("SPACESTATION_CF_ACCESS_CLIENT_ID", "")
-        val spaceStationClientSecret = localProperties.getProperty("SPACESTATION_CF_ACCESS_CLIENT_SECRET", "")
-        val wishlistEnabled = spaceStationUrl.isNotBlank() && spaceStationClientId.isNotBlank() && spaceStationClientSecret.isNotBlank()
+        val wishlistUrl = localProperties.getProperty("WISHLIST_URL", "")
+        val wishlistClientId = localProperties.getProperty("WISHLIST_CF_ACCESS_CLIENT_ID", "")
+        val wishlistClientSecret = localProperties.getProperty("WISHLIST_CF_ACCESS_CLIENT_SECRET", "")
+        val wishlistEnabled = wishlistUrl.isNotBlank() && wishlistClientId.isNotBlank() && wishlistClientSecret.isNotBlank()
         buildConfigField("boolean", "WISHLIST_ENABLED", wishlistEnabled.toString())
-        buildConfigField("String", "SPACESTATION_URL", "\"${if (wishlistEnabled) spaceStationUrl else ""}\"")
-        buildConfigField("String", "SPACESTATION_CF_ACCESS_CLIENT_ID", "\"${if (wishlistEnabled) spaceStationClientId else ""}\"")
-        buildConfigField("String", "SPACESTATION_CF_ACCESS_CLIENT_SECRET", "\"${if (wishlistEnabled) spaceStationClientSecret else ""}\"")
+        buildConfigField("String", "WISHLIST_URL", "\"${if (wishlistEnabled) wishlistUrl else ""}\"")
+        buildConfigField("String", "WISHLIST_CF_ACCESS_CLIENT_ID", "\"${if (wishlistEnabled) wishlistClientId else ""}\"")
+        buildConfigField("String", "WISHLIST_CF_ACCESS_CLIENT_SECRET", "\"${if (wishlistEnabled) wishlistClientSecret else ""}\"")
     }
 
     signingConfigs {

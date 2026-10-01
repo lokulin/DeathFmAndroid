@@ -130,8 +130,8 @@ in every public/CI build**, because the server's credentials must never ship in 
 public APK.
 
 - It switches on only when `local.properties` (git-ignored, next to `sdk.dir`)
-  defines `SPACESTATION_URL`, `SPACESTATION_CF_ACCESS_CLIENT_ID` and
-  `SPACESTATION_CF_ACCESS_CLIENT_SECRET`. `app/build.gradle.kts` turns those into
+  defines `WISHLIST_URL`, `WISHLIST_CF_ACCESS_CLIENT_ID` and
+  `WISHLIST_CF_ACCESS_CLIENT_SECRET`. `app/build.gradle.kts` turns those into
   `BuildConfig.WISHLIST_ENABLED` and three string fields; without all three the flag is
   `false`, the strings are empty, `DeathFmApp.wishlist` is `null` and the UI shows no heart.
 - **Never publish or share an APK built with those properties set** - the token is inside
@@ -139,7 +139,7 @@ public APK.
   releases are unaffected.
 - `wishlist/WishlistRepository.kt` holds the liked set and a queue of changes not yet
   delivered (persisted, latest intent per track wins, oldest-first delivery that stops
-  at the first failure), so a like made in a tunnel is sent later. `SpaceStationWishlistApi`
+  at the first failure), so a like made in a tunnel is sent later. `RemoteWishlistApi`
   does the `POST`/`DELETE /wishlist` calls. The phone UI and the Android Auto button share
   one repository, so the heart is in step on both.
 - Android Auto: the heart is a Media3 custom-layout `CommandButton` (`COMMAND_TOGGLE_LIKE`);

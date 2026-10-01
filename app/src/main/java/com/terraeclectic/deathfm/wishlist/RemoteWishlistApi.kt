@@ -13,14 +13,14 @@ import org.json.JSONObject
 import java.io.IOException
 
 /**
- * Sends wishlist changes to a private SpaceStation Worker (`POST`/`DELETE
+ * Sends wishlist changes to a private wishlist server (`POST`/`DELETE
  * /wishlist`, authenticated with its Cloudflare Access service token).
  *
  * Only ever constructed in builds whose `local.properties` supplies those
  * credentials (see `BuildConfig.WISHLIST_ENABLED`) - the public release
  * builds have none, so the feature simply isn't there.
  */
-class SpaceStationWishlistApi(
+class RemoteWishlistApi(
     private val baseUrl: String,
     private val clientId: String,
     private val clientSecret: String,
@@ -66,7 +66,7 @@ class SpaceStationWishlistApi(
     }
 
     private companion object {
-        const val TAG = "SpaceStationWishlist"
+        const val TAG = "RemoteWishlist"
         val JSON = "application/json".toMediaType()
         val RETRY_LATER = setOf(401, 403, 408, 429)
     }

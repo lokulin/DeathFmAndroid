@@ -58,7 +58,7 @@ interface WishlistSender {
 
 /**
  * The liked radio tracks, on this device, plus the queue of changes still to
- * send to SpaceStation. A like takes effect immediately (the heart fills, on
+ * send to the wishlist server. A like takes effect immediately (the heart fills, on
  * the phone and in the car) and is delivered whenever the network allows: a
  * failed send just leaves it queued for the next [toggle] or [flush] - nothing
  * is lost in a tunnel. Only the latest intent per track is kept, so
