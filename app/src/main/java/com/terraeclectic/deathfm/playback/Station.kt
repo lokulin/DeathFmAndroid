@@ -24,9 +24,9 @@ object Stations {
         // even in their own player page's onerror fallback, so not
         // something that broke on our side. Using our own already-hosted
         // copy of the same skull/headphones logo instead (same asset the
-        // Cast skin at deathfm-cast.pages.dev uses), since we don't control
+        // Cast skin at deathfm-cast.l6n.uk uses), since we don't control
         // death.fm's server to get theirs fixed.
-        logoUrl = "https://deathfm-cast.pages.dev/logo.png",
+        logoUrl = "https://deathfm-cast.l6n.uk/logo.png",
     )
 
     val all = listOf(DEATH_FM)
