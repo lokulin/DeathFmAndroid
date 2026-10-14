@@ -1,6 +1,7 @@
 package com.terraeclectic.deathfm.playback
 
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.SessionAvailabilityListener
@@ -362,7 +363,51 @@ class PlaybackService : MediaLibraryService() {
             if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
                 updateNowPlayingPolling(player)
             }
+            if (player === currentPlayer && events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
+                if (player.playWhenReady) onResumed(player) else onPaused(player)
+            }
         }
+    }
+
+    // SystemClock.elapsedRealtime of the last pause; 0 when not paused.
+    private var pausedAtMs = 0L
+
+    /**
+     * A live stream can't be paused in any useful sense, so pause behaves like stop: the
+     * session goes back to showing the station itself (name and logo, no track), exactly like
+     * before the first poll lands, and the last track is forgotten. Polling has already been
+     * stopped by [updateNowPlayingPolling]. While casting the receiver keeps its own station
+     * branding (see [switchToPlayer]), so there is nothing to reset there.
+     */
+    private fun onPaused(player: Player) {
+        pausedAtMs = SystemClock.elapsedRealtime()
+        if (player !== localPlayer) return
+        latestNowPlaying = NowPlayingMetadata.EMPTY
+        refreshLikeButton()
+        val current = player.currentMediaItem ?: return
+        player.replaceMediaItem(
+            player.currentMediaItemIndex,
+            current.buildUpon().setMediaMetadata(stationMediaItem(Stations.DEATH_FM).mediaMetadata).build(),
+        )
+    }
+
+    /**
+     * Resuming after more than [LIVE_RESUME_RECONNECT_MS] reconnects at the live edge instead of
+     * continuing from the buffer (which would play audio from before the pause while the
+     * metadata is live). Polling restarts by itself (see [updateNowPlayingPolling]) and its
+     * first poll lands immediately, refreshing the track and art.
+     */
+    private fun onResumed(player: Player) {
+        val pausedFor = if (pausedAtMs == 0L) 0L else SystemClock.elapsedRealtime() - pausedAtMs
+        pausedAtMs = 0L
+        if (pausedFor < LIVE_RESUME_RECONNECT_MS) return
+        if (player === castPlayer) {
+            // A fresh load: CastPlayer.stop() is unreliable (see MainActivity.onPlayPause), a new media item is not.
+            player.setMediaItem(castBrandingMediaItem(Stations.DEATH_FM))
+        } else {
+            player.stop() // keeps playWhenReady; prepare() below opens a new connection at the live edge
+        }
+        player.prepare()
     }
 
     /**
@@ -402,6 +447,8 @@ class PlaybackService : MediaLibraryService() {
      * hand-off (set once in switchToPlayer) for the rest of the session.
      */
     private fun onNowPlayingChanged(metadata: NowPlayingMetadata) {
+        // A poll already in flight when the user paused: the station display stays until playback resumes.
+        if (!currentPlayer.playWhenReady) return
         latestNowPlaying = metadata
         refreshLikeButton() // a new track starts with its own heart state, even while casting
         refreshUpcomingQueue(metadata.asin)
@@ -503,6 +550,8 @@ class PlaybackService : MediaLibraryService() {
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(station.displayName)
+                    .setDisplayTitle(station.displayName)
+                    .setArtworkUri(android.net.Uri.parse(station.logoUrl))
                     .setIsPlayable(true)
                     .setIsBrowsable(false)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
@@ -659,6 +708,7 @@ class PlaybackService : MediaLibraryService() {
         private const val ROOT_ID = "root"
         private const val LIKED_ID = "browse:liked"
         private const val MAX_UPCOMING = 10
+        private const val LIVE_RESUME_RECONNECT_MS = 3_000L
         private const val MIME_TYPE_CAST_AUDIO_AAC = "audio/aac"
         // Must match the receiver's listener namespace exactly
         // (DeathFmCastReceiver's index.html) - no Cast Console registration
